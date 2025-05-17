@@ -99,10 +99,15 @@ export default function AudioPlayer({
       
       // Process text to ensure reasonable length for audio synthesis
       let processedText = text;
-      if (processedText.length > 300 && isFeedback) {
-        console.log("AudioPlayer: Feedback text is long, truncating for better playback");
-        // For feedback, try to keep just the most relevant parts
-        processedText = processedText.split('.').slice(0, 3).join('.') + '.';
+      if (processedText.length > 1000 && isFeedback) {
+        console.log("AudioPlayer: Feedback text is very long, truncating for better playback");
+        // For extremely long feedback, find a good cutoff point at a sentence boundary
+        const lastPeriod = processedText.lastIndexOf('.', 1000);
+        if (lastPeriod > 0) {
+          processedText = processedText.substring(0, lastPeriod + 1);
+        } else {
+          processedText = processedText.substring(0, 1000) + '...';
+        }
       }
       
       console.log("AudioPlayer: Fetching audio for text:", processedText.substring(0, 50) + "...");
@@ -189,11 +194,23 @@ export default function AudioPlayer({
         }
         
         if (onPlaybackEnd) {
+          // Improve handling of playback end event, especially for feedback messages
           audioRef.current.onended = () => {
             console.log(`AudioPlayer: Audio playback ended for message ${messageId}, isFeedback: ${isFeedback}, isSafari: ${isSafari}`);
-            // Clean up URL when done
-            URL.revokeObjectURL(audioUrl);
-            onPlaybackEnd();
+            
+            // For feedback messages, add a small extra delay to ensure the audio is fully processed
+            if (isFeedback) {
+              console.log(`AudioPlayer: Adding extra delay for feedback message ${messageId} to ensure complete playback`);
+              setTimeout(() => {
+                // Clean up URL when done
+                URL.revokeObjectURL(audioUrl);
+                onPlaybackEnd();
+              }, 300); // Small extra delay for feedback messages
+            } else {
+              // For regular messages, proceed normally
+              URL.revokeObjectURL(audioUrl);
+              onPlaybackEnd();
+            }
           };
         }
         

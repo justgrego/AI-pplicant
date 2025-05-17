@@ -82,7 +82,7 @@ const primeSafariAudioContext = () => {
 };
 
 // Add the constant for the voice ID at the top level
-const VOICE_ID = 'aEO01A4wXwd1O8GPgGlF';
+const VOICE_ID = 'xctasy8XvGp2cVO9HL9k';
 
 export default function Home() {
   const [jobDescription, setJobDescription] = useState('');
@@ -135,31 +135,81 @@ export default function Home() {
     }
   }, [conversation, isSpeaking]);
 
-  // Create a simpler, more direct feedback formatter that preserves improvement suggestions
-  const createAudioFriendlyFeedback = (feedback: FeedbackResponse) => {
+  // Create a more conversational, concise, and contextual feedback formatter
+  const createAudioFriendlyFeedback = (feedback: FeedbackResponse, questionText?: string, userAnswer?: string) => {
     // Extract core content from feedback
     const score = feedback.score;
-    const strengths = feedback.strengths[0] || '';
-    const improvement = feedback.improvements[0] || '';
+    const strengths = feedback.strengths || [];
+    const improvements = feedback.improvements || [];
     
-    // Direct conversational format
-    let message = feedback.feedback; // Use the original feedback first
+    // Get the original feedback
+    const originalFeedback = feedback.feedback;
     
-    // If the original feedback is too long, create a condensed version
-    if (message.length > 200) {
-      // Create a simpler message that's still conversational but shorter
-      if (interviewMode === 'behavioral' && message.toLowerCase().includes('star')) {
-        // For behavioral with STAR method feedback
-        message = `Here's my feedback. ${strengths}. For improvement, remember to use the STAR method - Situation, Task, Action, Result. ${improvement}. Score: ${score}/5.`;
-      } else {
-        // For general and technical feedback
-        message = `Here's what I think. ${strengths}. To improve, ${improvement}. Your score is ${score}/5.`;
+    // Create a more conversational and contextual message
+    let message = '';
+    
+    // Get question context if available (usually from the current question)
+    const currentQuestion = currentQuestionIndex < questions.length ? 
+      questions[currentQuestionIndex].question : 
+      questionText || "your answer";
+    
+    // Extract a brief version of the question (first 50 chars)
+    const briefQuestion = currentQuestion?.length > 50 ? 
+      currentQuestion.substring(0, 50) + '...' : 
+      currentQuestion;
+    
+    // Create conversational openers based on score
+    const conversationalOpeners = [
+      "Thanks for that answer about ",  // neutral
+      "I appreciate your response about ", // neutral
+      "That's a good point about ",  // positive
+      "I like how you addressed ",   // positive
+      "I see what you're saying about "  // neutral
+    ];
+    
+    // Select a conversation opener
+    const opener = conversationalOpeners[Math.floor(Math.random() * 3)];
+    
+    // Create more human-like feedback that references the question
+    if (score >= 4) {
+      // High score feedback
+      message = `${opener}${briefQuestion}. I thought ${strengths[0].toLowerCase()}. ${strengths.length > 1 ? strengths[1] + '. ' : ''} ${improvements.length > 0 ? 'To make it even better, ' + improvements[0].toLowerCase() + '.' : ''} That's a ${score}/5 from me.`;
+    } else if (score >= 3) {
+      // Medium score feedback
+      message = `${opener}${briefQuestion}. ${strengths[0]}. However, ${improvements[0].toLowerCase()}. ${improvements.length > 1 ? improvements[1] + '. ' : ''} Overall, that's a ${score}/5.`;
+    } else {
+      // Low score feedback
+      message = `Regarding your answer about ${briefQuestion}, ${strengths.length > 0 ? strengths[0] + '. ' : 'there are some areas to work on. '} ${improvements[0]}. ${improvements.length > 1 ? improvements[1] + '. ' : ''} Let's aim for better than ${score}/5 next time.`;
+    }
+    
+    // Add STAR method specific advice for behavioral questions if needed
+    if (interviewMode === 'behavioral' && originalFeedback.toLowerCase().includes('star')) {
+      message += ' Remember to use the STAR method: Situation, Task, Action, and Result.';
+    }
+    
+    // Add technical specificity for technical questions
+    if (interviewMode === 'technical' && userAnswer && userAnswer.length > 0) {
+      // If they mentioned code or algorithms, acknowledge it
+      if (userAnswer.toLowerCase().includes('code') || 
+          userAnswer.toLowerCase().includes('algorithm') ||
+          userAnswer.toLowerCase().includes('complexity')) {
+        message += ' Your technical details were important.';
       }
     }
     
-    // Ensure the message isn't too long for audio
-    if (message.length > 300) {
-      message = message.substring(0, 300) + '...';
+    // Add pause markers for better TTS pacing (commas and periods help speech systems pace better)
+    message = message.replace(/\.\s+/g, '. '); // Ensure proper spacing after periods
+    message = message.replace(/\,\s+/g, ', '); // Ensure proper spacing after commas
+    
+    // Don't cut off feedback too abruptly
+    if (message.length > 1000) {
+      // Find the last sentence end within the limit
+      const lastPeriod = message.lastIndexOf('.', 1000);
+      if (lastPeriod > 900) {
+        message = message.substring(0, lastPeriod + 1);
+      } else {
+        message = message.substring(0, 1000) + '...';
+      }
     }
     
     return message;
@@ -462,7 +512,7 @@ export default function Home() {
     }, 300);
   };
 
-  // Force direct question progression after feedback
+    // Force direct question progression after feedback with improved timing
   const handleAudioPlaybackEnded = () => {
     const currentAudioIndex = lastAudioMessageIdRef.current;
     console.log(`Audio playback ended for message ${currentAudioIndex}, type: ${currentAudioIndex !== null ? conversation[currentAudioIndex]?.role : 'none'}`);
@@ -472,26 +522,40 @@ export default function Home() {
     lastAudioMessageIdRef.current = null;
     setIsSpeaking(false);
     
-    // Immediately check if a feedback message just finished playing
+    // Check if a feedback message just finished playing
     if (currentMessage?.role === 'feedback') {
-      console.log("Feedback audio just finished, triggering next question immediately");
+      console.log("Feedback audio just finished, waiting before triggering next question");
+      
+      // Calculate a delay based on the feedback length to ensure it's fully processed
+      const feedbackText = currentMessage.summarizedContent || 
+                          (currentMessage.feedback ? currentMessage.feedback.feedback : '');
+      
+      // Use a base delay plus additional time based on text length
+      // This ensures short messages have enough time and long messages don't get cut off
+      const baseDelay = 1500; // Base delay of 1.5 seconds
+      const textLengthDelay = Math.min(feedbackText.length * 15, 3000); // Up to 3 seconds extra for long text
+      const totalDelay = baseDelay + textLengthDelay;
+      
+      console.log(`Setting delay of ${totalDelay}ms for feedback text of length ${feedbackText.length}`);
+      
       setTimeout(() => {
+        console.log("Delay completed, now triggering next question");
         addNextQuestion(currentMessage);
-      }, 300);
+      }, totalDelay);
       return;
     }
     
-      // Find the next message that needs audio playback
-  setTimeout(() => {
-    const nextMessageIndex = findNextAudioMessageIndex();
-    
-    if (nextMessageIndex !== -1) {
-      console.log(`Playing next audio message at index ${nextMessageIndex}`);
-      lastAudioMessageIdRef.current = nextMessageIndex;
-    } else {
-      console.log("No more messages need audio playback");
-    }
-  }, 200);
+    // Find the next message that needs audio playback
+    setTimeout(() => {
+      const nextMessageIndex = findNextAudioMessageIndex();
+      
+      if (nextMessageIndex !== -1) {
+        console.log(`Playing next audio message at index ${nextMessageIndex}`);
+        lastAudioMessageIdRef.current = nextMessageIndex;
+      } else {
+        console.log("No more messages need audio playback");
+      }
+    }, 200);
   };
 
   // Helper function to find the next message that needs audio
@@ -667,7 +731,11 @@ export default function Home() {
 
       // Prepare feedback content for display and audio
       const displayFeedback = feedback.feedback;
-      const audioFeedback = createAudioFriendlyFeedback(feedback);
+      const audioFeedback = createAudioFriendlyFeedback(
+        feedback, 
+        currentQuestion?.question,
+        currentAnswer
+      );
       
       console.log("Audio-friendly feedback created:", audioFeedback);
 
@@ -846,7 +914,11 @@ export default function Home() {
 
           // Create conversational feedback for display and audio
           const displayFeedback = feedback.feedback;
-          const audioFeedback = createAudioFriendlyFeedback(feedback);
+          const audioFeedback = createAudioFriendlyFeedback(
+            feedback,
+            currentQuestion?.question, 
+            answerText
+          );
           
           console.log("Voice input: Audio-friendly feedback created:", audioFeedback);
 
