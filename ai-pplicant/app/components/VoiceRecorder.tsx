@@ -84,9 +84,9 @@ export default function VoiceRecorder({ onTranscription, isListening = false }: 
     
     if (mediaRecorderRef.current && recording) {
       // If it's a SpeechRecognition object (has stop method)
-      if (typeof (mediaRecorderRef.current as unknown as { stop?: Function }).stop === 'function') {
+      if (typeof (mediaRecorderRef.current as unknown as { stop?: () => void }).stop === 'function') {
         try {
-          (mediaRecorderRef.current as unknown as { stop: Function }).stop();
+          (mediaRecorderRef.current as unknown as { stop: () => void }).stop();
         } catch (e) {
           console.error("Error stopping recorder:", e);
         }

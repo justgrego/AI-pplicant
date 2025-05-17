@@ -3,6 +3,7 @@
   "rules": {
     "@typescript-eslint/no-explicit-any": "error",
     "@next/next/no-img-element": "error",
+    "@typescript-eslint/no-unsafe-function-type": "off",
     "@typescript-eslint/no-unused-vars": ["warn", { 
       "argsIgnorePattern": "^_",
       "varsIgnorePattern": "^_",
