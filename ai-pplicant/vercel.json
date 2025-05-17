@@ -1,14 +1,3 @@
 {
-  "buildCommand": "npm run build",
-  "installCommand": "npm install",
-  "framework": "nextjs",
-  "devCommand": "npm run dev",
-  "outputDirectory": ".next",
-  "env": {
-    "OPENAI_API_KEY": "@openai_api_key",
-    "ELEVENLABS_API_KEY": "@elevenlabs_api_key"
-  },
-  "routes": [
-    { "src": "/(.*)", "dest": "/" }
-  ]
+  "framework": "nextjs"
 } 

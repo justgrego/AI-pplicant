@@ -1,0 +1,13 @@
+{
+  "name": "ai-pplicant-root",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "ai-pplicant"
+  ],
+  "scripts": {
+    "dev": "cd ai-pplicant && npm run dev",
+    "build": "cd ai-pplicant && npm run build",
+    "start": "cd ai-pplicant && npm run start"
+  }
+} 
