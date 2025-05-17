@@ -645,12 +645,22 @@ export default function Home() {
     });
 
     try {
-      // Get the current question if available
-      const currentQuestion = currentQuestionIndex < questions.length 
-        ? questions[currentQuestionIndex] 
-        : null;
+      // Get the current question - make sure we're using the most recent question in the conversation
+      // Find the last interviewer message with a question in the conversation
+      let lastInterviewerQuestionIndex = -1;
+      for (let i = conversation.length - 1; i >= 0; i--) {
+        if (conversation[i].role === 'interviewer' && conversation[i].question) {
+          lastInterviewerQuestionIndex = i;
+          break;
+        }
+      }
       
-      console.log(`Submitting answer for question ${currentQuestionIndex}, company: ${company}`);
+      // Use the question from the conversation or fall back to the current index
+      const currentQuestion = lastInterviewerQuestionIndex !== -1
+        ? conversation[lastInterviewerQuestionIndex].question
+        : (currentQuestionIndex < questions.length ? questions[currentQuestionIndex] : null);
+      
+      console.log(`Submitting answer for question: ${currentQuestion?.question}, company: ${company}`);
       
       // Prepare conversation history for the API
       const conversationHistory = conversation
@@ -819,10 +829,20 @@ export default function Home() {
         setError(null);
         
         try {
-          // Get the current question
-          const currentQuestion = currentQuestionIndex < questions.length 
-            ? questions[currentQuestionIndex] 
-            : null;
+          // Get the current question from the conversation
+          // Find the last interviewer message with a question in the conversation
+          let lastInterviewerQuestionIndex = -1;
+          for (let i = conversation.length - 1; i >= 0; i--) {
+            if (conversation[i].role === 'interviewer' && conversation[i].question) {
+              lastInterviewerQuestionIndex = i;
+              break;
+            }
+          }
+          
+          // Use the question from the conversation or fall back to the current index
+          const currentQuestion = lastInterviewerQuestionIndex !== -1
+            ? conversation[lastInterviewerQuestionIndex].question
+            : (currentQuestionIndex < questions.length ? questions[currentQuestionIndex] : null);
           
           // Prepare conversation history
           const conversationHistory = conversation
