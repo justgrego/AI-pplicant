@@ -25,7 +25,11 @@ interface ConversationMessage {
   question?: Question;
   feedback?: FeedbackResponse;
   summarizedContent?: string;
+  needsAudioPlay?: boolean;
 }
+
+// Interview mode type
+type InterviewMode = 'technical' | 'behavioral';
 
 export default function Home() {
   const [jobDescription, setJobDescription] = useState('');
@@ -39,12 +43,23 @@ export default function Home() {
   const [conversation, setConversation] = useState<ConversationMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [listeningForVoice, setListeningForVoice] = useState(false);
+  const [interviewMode, setInterviewMode] = useState<InterviewMode>('technical');
   const conversationEndRef = useRef<HTMLDivElement>(null);
+  const lastAudioMessageIdRef = useRef<number | null>(null);
 
   // Scroll to bottom of conversation when new messages are added
   useEffect(() => {
     if (conversationEndRef.current) {
       conversationEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Play audio for the last message that needs audio
+    const lastMessageIndex = conversation.findIndex((msg, idx) => 
+      msg.needsAudioPlay && (!lastAudioMessageIdRef.current || idx > lastAudioMessageIdRef.current)
+    );
+
+    if (lastMessageIndex !== -1) {
+      lastAudioMessageIdRef.current = lastMessageIndex;
     }
   }, [conversation]);
 
@@ -67,6 +82,7 @@ export default function Home() {
         body: JSON.stringify({
           company,
           jobDescription,
+          interviewMode, // Send the interview mode to the API
         }),
       });
 
@@ -81,21 +97,23 @@ export default function Home() {
         setCurrentQuestionIndex(0);
         
         // Create welcome message with summarized version for speech
-        const welcomeMessage = `Welcome to your technical interview with ${company}. I'll be asking you some questions to evaluate your technical skills. Let's start with the first question.`;
-        const summarizedWelcome = `Welcome to your interview with ${company}. Let's begin.`;
+        const welcomeMessage = `Welcome to your ${interviewMode} interview with ${company}. I'll be asking you some questions to evaluate your ${interviewMode === 'technical' ? 'technical skills' : 'fit for the role'}. Let's start with the first question.`;
+        const summarizedWelcome = `Welcome to your ${interviewMode} interview with ${company}. Let's begin.`;
         
         // Add welcome message and first question to conversation
         setConversation([
           {
             role: 'interviewer',
             content: welcomeMessage,
-            summarizedContent: summarizedWelcome
+            summarizedContent: summarizedWelcome,
+            needsAudioPlay: true
           },
           {
             role: 'interviewer',
             content: data.questions[0].question,
             question: data.questions[0],
-            summarizedContent: data.questions[0].question
+            summarizedContent: data.questions[0].question,
+            needsAudioPlay: true
           }
         ]);
         
@@ -143,6 +161,7 @@ export default function Home() {
           category: currentQuestion.category,
           difficulty: currentQuestion.difficulty,
           company,
+          interviewMode, // Send interview mode to get appropriate feedback
         }),
       });
 
@@ -164,7 +183,8 @@ export default function Home() {
           role: 'feedback', 
           content: feedback.feedback,
           feedback: feedback,
-          summarizedContent: summarizedFeedback
+          summarizedContent: summarizedFeedback,
+          needsAudioPlay: true
         }
       ]);
 
@@ -181,7 +201,8 @@ export default function Home() {
               role: 'interviewer', 
               content: questions[nextQuestionIndex].question,
               question: questions[nextQuestionIndex],
-              summarizedContent: questions[nextQuestionIndex].question
+              summarizedContent: questions[nextQuestionIndex].question,
+              needsAudioPlay: true
             }
           ]);
         }, 1000);
@@ -194,7 +215,8 @@ export default function Home() {
             { 
               role: 'interviewer', 
               content: concludingMessage,
-              summarizedContent: "That's all for today. Thanks for participating in this interview simulation."
+              summarizedContent: "That's all for today. Thanks for participating in this interview simulation.",
+              needsAudioPlay: true
             }
           ]);
         }, 1000);
@@ -212,12 +234,12 @@ export default function Home() {
 
   const handleVoiceInput = (transcript: string) => {
     setUserAnswer(transcript);
-    // Auto-submit answer after voice recording
-    setTimeout(() => {
-      if (transcript.trim()) {
+    // Auto-submit answer after voice recording only if there's content
+    if (transcript.trim()) {
+      setTimeout(() => {
         handleSubmitAnswer();
-      }
-    }, 500);
+      }, 500);
+    }
     setListeningForVoice(false);
   };
 
@@ -228,13 +250,14 @@ export default function Home() {
     setUserAnswer('');
     setConversation([]);
     setError(null);
+    lastAudioMessageIdRef.current = null;
   };
 
   return (
     <main className="flex min-h-screen flex-col bg-gradient-to-b from-gray-900 to-gray-950 text-white">
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 pb-8">
         <h1 className="text-3xl md:text-4xl font-bold text-center mt-8 mb-2 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-500">AI-pplicant</h1>
-        <h2 className="text-xl md:text-2xl text-center mb-8 text-gray-300">Technical Interview Simulator</h2>
+        <h2 className="text-xl md:text-2xl text-center mb-8 text-gray-300">Interview Simulator</h2>
         
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 text-red-300 rounded-md border border-red-500/20">
@@ -271,6 +294,50 @@ export default function Home() {
                 placeholder="Paste the job description here (include technical requirements, responsibilities, etc.)"
               />
             </div>
+
+            {/* Interview Mode Selection */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium mb-2 text-gray-300">
+                Interview Type
+              </label>
+              <div className="flex space-x-4">
+                <button
+                  onClick={() => setInterviewMode('technical')}
+                  className={`flex-1 py-3 px-4 rounded-lg transition-colors ${
+                    interviewMode === 'technical' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                    Technical
+                  </div>
+                </button>
+                <button
+                  onClick={() => setInterviewMode('behavioral')}
+                  className={`flex-1 py-3 px-4 rounded-lg transition-colors ${
+                    interviewMode === 'behavioral' 
+                      ? 'bg-indigo-600 text-white' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-6-3a2 2 0 11-4 0 2 2 0 014 0zm-2 4a5 5 0 00-4.546 2.916A5.986 5.986 0 005 10a6 6 0 0012 0c0-.35-.041-.69-.101-1.021A5 5 0 0010 11z" clipRule="evenodd" />
+                    </svg>
+                    Behavioral
+                  </div>
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-gray-400">
+                {interviewMode === 'technical' 
+                  ? 'Focus on coding, algorithms, and technical knowledge' 
+                  : 'Focus on soft skills, experience, and situational questions'}
+              </p>
+            </div>
             
             <button
               onClick={handleStartInterview}
@@ -283,7 +350,7 @@ export default function Home() {
                   <span>Preparing Interview...</span>
                 </div>
               ) : (
-                'Start Technical Interview'
+                `Start ${interviewMode === 'technical' ? 'Technical' : 'Behavioral'} Interview`
               )}
             </button>
           </div>
@@ -302,6 +369,15 @@ export default function Home() {
                   >
                     Restart
                   </button>
+                </div>
+                
+                {/* Interview mode indicator */}
+                <div className="mb-4">
+                  <span className={`inline-block px-3 py-1 rounded-full text-sm ${
+                    interviewMode === 'technical' ? 'bg-blue-600/30 text-blue-300' : 'bg-indigo-600/30 text-indigo-300'
+                  }`}>
+                    {interviewMode === 'technical' ? 'Technical Interview' : 'Behavioral Interview'}
+                  </span>
                 </div>
                 
                 {/* Interview progress */}
@@ -324,7 +400,10 @@ export default function Home() {
                     {/* Replace this with an actual animated interviewer image */}
                     <div className="relative w-full h-full">
                       <Image 
-                        src="https://www.animatedimages.org/data/media/1660/animated-interview-image-0011.gif" 
+                        src={interviewMode === 'technical' 
+                          ? "https://www.animatedimages.org/data/media/1660/animated-interview-image-0011.gif"
+                          : "https://www.animatedimages.org/data/media/1660/animated-interview-image-0003.gif"
+                        }
                         alt="AI Interviewer"
                         className="object-cover rounded-lg"
                         fill
@@ -405,10 +484,10 @@ export default function Home() {
                             </div>
                             <p className="text-white">{message.content}</p>
                             
-                            {message.question && (
+                            {index === lastAudioMessageIdRef.current && (
                               <AudioPlayer 
                                 text={message.summarizedContent || message.content}
-                                autoPlay={index < 3} // Auto-play first few messages
+                                autoPlay={true}
                                 hideControls={true}
                               />
                             )}
@@ -475,11 +554,13 @@ export default function Home() {
                               </div>
                             )}
                             
-                            <AudioPlayer 
-                              text={message.summarizedContent || message.content}
-                              autoPlay={true}
-                              hideControls={true}
-                            />
+                            {index === lastAudioMessageIdRef.current && (
+                              <AudioPlayer 
+                                text={message.summarizedContent || message.content}
+                                autoPlay={true}
+                                hideControls={true}
+                              />
+                            )}
                           </div>
                         </div>
                       </div>
@@ -503,7 +584,8 @@ export default function Home() {
               <div className={listeningForVoice ? "block" : "hidden"}>
                 <VoiceRecorder 
                   onTranscription={handleVoiceInput} 
-                  isListening={listeningForVoice} 
+                  isListening={listeningForVoice}
+                  autoStopAfterSilence={false} // Never auto-stop
                 />
               </div>
               
