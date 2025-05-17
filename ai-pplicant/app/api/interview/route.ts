@@ -141,82 +141,102 @@ export async function POST(request: NextRequest) {
       // For conversational mode, we just need 1-2 starter questions
       promptContent = interviewMode === 'technical' 
         ? `
-          You are creating an initial technical interview question for a computer science position at ${company}.
+          You are an expert technical interviewer for ${company} with extensive knowledge of their interview process.
           The job description is: "${jobDescription}"
           
-          Based on this job description and public knowledge about ${company}'s interview process, generate ONE thoughtful, open-ended technical question that:
-          1. Serves as an excellent conversation starter for a technical interview
-          2. Is open-ended enough to allow for follow-up questions based on the candidate's response
-          3. Relates to the technologies and skills mentioned in the job description
-          4. Feels natural and conversational, not overly algorithmic for the first question
-          5. Helps assess the candidate's background and experience relevant to ${company}
+          Based on this job description and your knowledge of ${company}'s specific interview style and technical focus areas, generate ONE thoughtful, open-ended technical question that:
+          1. Reflects the actual interview questions commonly asked at ${company}
+          2. Serves as an excellent conversation starter for a technical interview
+          3. Is open-ended enough to allow for follow-up questions based on the candidate's response
+          4. Specifically relates to the technologies, skills, and projects mentioned in the job description
+          5. Demonstrates familiarity with ${company}'s technical challenges and environment
+          6. Feels authentic to ${company}'s interview culture - not generic
+          
+          Consider the unique aspects of ${company}'s engineering culture, such as:
+          - Their specific tech stack and infrastructure
+          - The key technical challenges they're currently facing
+          - The company's core products and technical philosophy
+          - The engineering principles and practices they value
           
           Format the output as a JSON array containing just one object with:
-          - "question": The interview question
-          - "category": The category of the question (e.g., "Technical Background", "Problem Solving Approach", etc.)
+          - "question": A company-specific technical question that feels like it would actually be asked at ${company}
+          - "category": The specific category of the question relevant to ${company}'s interview process
           - "difficulty": The interview stage (should be "Initial Screen" or similar)
           
           Example format:
           [
             {
-              "question": "Can you walk me through your experience with cloud technologies and how you might apply that to our infrastructure at ${company}?",
-              "category": "Technical Background",
-              "difficulty": "Initial Screen"
+              "question": "At ${company}, we face challenges scaling our [specific product] for millions of users. How would you approach optimizing the performance of a distributed system like this?",
+              "category": "System Design & Optimization",
+              "difficulty": "Initial Technical Screen"
             }
           ]
         `
         : `
-          You are creating an initial behavioral interview question for a position at ${company}.
+          You are an experienced behavioral interviewer at ${company}, familiar with the company's unique culture, values, and behavioral interview style.
           The job description is: "${jobDescription}"
           
-          Based on this job description and public knowledge about ${company}'s interview process, generate ONE thoughtful, open-ended behavioral question that:
-          1. Serves as an excellent conversation starter for the interview
-          2. Is open-ended enough to allow for natural follow-up questions
-          3. Helps understand the candidate's background, motivations and cultural fit with ${company}
-          4. Feels warm and conversational, not interrogative
-          5. Relates to the responsibilities and qualifications in the job description
+          Based on this job description and your in-depth knowledge of ${company}'s specific behavioral interview process, generate ONE thoughtful, open-ended behavioral question that:
+          1. Reflects a question that would actually be asked at ${company} - not a generic behavioral question
+          2. Aligns with ${company}'s core values and cultural attributes
+          3. Probes for experiences that demonstrate skills crucial for success at ${company}
+          4. Is crafted to elicit specific examples (STAR method) rather than hypothetical situations
+          5. Feels authentic to the company's interview style and expectations
+          6. Adapts to the specific role requirements in the job description
+          
+          Consider specific aspects of ${company}'s culture when crafting the question:
+          - The company's approach to collaboration and teamwork
+          - How the company handles challenges and failures
+          - The specific leadership principles or values the company prioritizes
+          - What makes someone successful within the company's culture
           
           Format the output as a JSON array containing just one object with:
-          - "question": The interview question
-          - "category": The competency being assessed (e.g., "Introduction", "Background", "Motivation")
+          - "question": A company-specific behavioral question that feels authentic to ${company}'s interview process
+          - "category": The specific competency being assessed relevant to success at ${company}
           - "difficulty": The interview stage (should be "Initial Screen")
           
           Example format:
           [
             {
-              "question": "Tell me about yourself and what interests you about this role at ${company}?",
-              "category": "Introduction",
+              "question": "At ${company}, we value [specific company value]. Tell me about a time when you demonstrated this value in a challenging situation and what the outcome was.",
+              "category": "Cultural Alignment",
               "difficulty": "Initial Screen"
             }
           ]
         `;
     } else {
-      // Original prompt for full question set
+      // Enhanced prompt for full question set with company-specific adaptation
       promptContent = interviewMode === 'technical' 
         ? `
-          You are creating a list of technical interview questions for a computer science position at ${company}.
+          You are an expert technical interviewer for ${company} with years of experience conducting interviews for top engineering candidates.
           The job description is: "${jobDescription}"
           
-          Based on this job description and public knowledge about ${company}'s interview process, generate 5 technical interview questions that:
-          1. Reflect the ACTUAL interview questions commonly asked at ${company} for this type of role
-          2. Follow the typical interview structure and difficulty progression at ${company}
-          3. Include questions specific to the technologies and skills mentioned in the job description
-          4. Cover data structures, algorithms, system design, and technical problem-solving in proportions typical for ${company}
-          5. Range from screening-level to final round questions to simulate a complete interview experience
+          Based on this job description and your deep knowledge of ${company}'s specific interview process, generate 5 technical interview questions that:
+          1. Accurately simulate the ACTUAL interview questions asked at ${company} for this role - avoid generic questions
+          2. Follow ${company}'s known interview progression pattern and difficulty curve
+          3. Focus on the company's core technologies, products, and technical challenges
+          4. Reflect the unique emphasis ${company} places on certain technical skills (e.g., some companies focus more on algorithms vs. system design)
+          5. Incorporate aspects of ${company}'s technical environment, architecture, and scale
+          6. Adapt to be progressively more challenging, showing the range from initial to final round questions
+          7. Include questions that assess how candidates would address the company's actual technical challenges
           
-          Make these questions as authentic and company-specific as possible, mimicking the real interview experience at ${company}.
+          For each question, consider:
+          - The specific products or services the candidate would work on at ${company}
+          - The scale and technical constraints unique to ${company}
+          - How the question reveals a candidate's compatibility with ${company}'s engineering culture
+          - Whether the question feels authentically like one asked at ${company}, not at other tech companies
           
           Format the output as a JSON array of objects, where each object has:
-          - "question": The interview question
-          - "category": The category of the question (e.g., "Algorithm", "System Design", "Language Specific", "Behavioral", "Problem Solving")
-          - "difficulty": The interview stage/difficulty (e.g., "Phone Screen", "Technical Round", "Final Round")
+          - "question": A company-specific technical question that feels authentic to ${company}'s interview process
+          - "category": The specific category relevant to ${company}'s technical focus areas
+          - "difficulty": The interview stage/difficulty reflecting ${company}'s interview progression
           
           Example format:
           [
             {
-              "question": "How would you implement a distributed cache system for ${company}'s main product?",
-              "category": "System Design",
-              "difficulty": "Technical Round"
+              "question": "At ${company}, we process millions of [specific data type] events per second. Design a system that can handle this scale while allowing for [specific requirement relevant to company].",
+              "category": "System Design & Scalability",
+              "difficulty": "Technical Round 2"
             },
             ...
           ]
