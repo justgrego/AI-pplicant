@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
 // Add type definitions for the WebSpeechAPI
 declare global {
   interface Window {
-    SpeechRecognition: any;
-    webkitSpeechRecognition: any;
+    SpeechRecognition: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    webkitSpeechRecognition: any; // eslint-disable-line @typescript-eslint/no-explicit-any
   }
 }
 
@@ -42,16 +42,7 @@ export default function VoiceRecorder({ onTranscription, isListening = false }: 
     requestMicrophonePermission();
   }, []);
 
-  // Handle automatic listening mode
-  useEffect(() => {
-    if (isListening && permissionGranted && !recording) {
-      startRecording();
-    } else if (!isListening && recording) {
-      stopRecording();
-    }
-  }, [isListening, permissionGranted, recording]);
-
-  const startRecording = async () => {
+  const startRecording = useCallback(async () => {
     if (!permissionGranted) {
       setError('Microphone permission not granted');
       return;
@@ -83,14 +74,23 @@ export default function VoiceRecorder({ onTranscription, isListening = false }: 
       console.error('Error starting recording:', err);
       setError('Failed to start recording');
     }
-  };
+  }, [permissionGranted]);
 
-  const stopRecording = () => {
+  const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && recording) {
       mediaRecorderRef.current.stop();
       setRecording(false);
     }
-  };
+  }, [recording]);
+
+  // Handle automatic listening mode
+  useEffect(() => {
+    if (isListening && permissionGranted && !recording) {
+      startRecording();
+    } else if (!isListening && recording) {
+      stopRecording();
+    }
+  }, [isListening, permissionGranted, recording, startRecording, stopRecording]);
 
   const processAudio = async (audioBlob: Blob) => {
     try {
@@ -110,14 +110,16 @@ export default function VoiceRecorder({ onTranscription, isListening = false }: 
         const audio = new Audio(audioUrl);
         audio.play();
         
-        recognition.onresult = (event: any) => {
-          const transcript = event.results[0][0].transcript;
+        recognition.onresult = (event: Event) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          const speechEvent = event as unknown as { results: { transcript: string }[][] };
+          const transcript = speechEvent.results[0][0].transcript;
           onTranscription(transcript);
         };
         
-        recognition.onerror = (event: any) => {
-          console.error('Speech recognition error', event.error);
-          setError('Speech recognition error: ' + event.error);
+        recognition.onerror = (event: Event) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          const errorEvent = event as unknown as { error: string };
+          console.error('Speech recognition error', errorEvent.error);
+          setError('Speech recognition error: ' + errorEvent.error);
         };
         
         recognition.start();

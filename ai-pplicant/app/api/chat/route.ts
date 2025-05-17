@@ -1,32 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
 
-// Mock responses when API key is missing or for development
-const MOCK_RESPONSES = [
-  "That's an interesting answer. Could you elaborate a bit more?",
-  "Thank you for sharing that. Your experience sounds valuable.",
-  "I see your point. That's a good perspective on the matter.",
-  "Great response! I appreciate your thoughtful answer.",
-  "I understand your approach. That makes sense given the context."
-];
-
 export async function POST(request: NextRequest) {
   try {
-    const { userAnswer, question, company } = await request.json();
+    const { userAnswer, question, category, company } = await request.json();
 
-    if (!userAnswer) {
+    if (!userAnswer || !question) {
       return NextResponse.json(
-        { error: 'User answer is required' },
+        { error: 'User answer and question are required' },
         { status: 400 }
       );
     }
 
-    // Return a random mock response if no OpenAI key or in development
-    if (!process.env.OPENAI_API_KEY || process.env.NODE_ENV === 'development') {
-      const randomIndex = Math.floor(Math.random() * MOCK_RESPONSES.length);
+    if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({
-        response: MOCK_RESPONSES[randomIndex]
-      });
+        error: 'OpenAI API key is required',
+        message: 'Please set the OPENAI_API_KEY environment variable'
+      }, { status: 500 });
     }
 
     // Initialize OpenAI
@@ -34,35 +24,61 @@ export async function POST(request: NextRequest) {
       apiKey: process.env.OPENAI_API_KEY,
     });
 
-    // Generate a response from the interviewer
+    // Generate constructive feedback for the computer science interview answer
     const promptContent = `
-      You are an interviewer at ${company}.
-      You just asked the candidate: "${question}"
+      You are an expert technical interviewer for ${company || 'a top tech company'} specializing in computer science positions.
+      
+      The candidate was asked this question: "${question}" ${category ? `(Category: ${category})` : ''}
+      
       The candidate responded: "${userAnswer}"
       
-      As the interviewer, provide a brief, encouraging response (2-3 sentences max) 
-      to acknowledge their answer and possibly provide a follow-up comment.
-      Be professional but friendly and natural in your tone.
+      Provide a detailed assessment of their answer that includes:
+      1. A brief overview of what was good about their answer
+      2. Specific areas for improvement with concrete examples
+      3. What an optimal answer would include that they might have missed
+      4. A score from 1-5 (where 5 is excellent)
+      
+      Format your response as a JSON object with the following fields:
+      - "feedback": Your detailed feedback (about 2-3 paragraphs)
+      - "strengths": Array of specific strengths in the answer (2-3 points)
+      - "improvements": Array of specific areas for improvement (2-3 points)
+      - "score": Numerical score (1-5)
+      - "follow_up": A follow-up question you would ask to dig deeper
     `;
 
     const completion = await openai.chat.completions.create({
       messages: [{ role: 'user', content: promptContent }],
       model: 'gpt-3.5-turbo',
-      max_tokens: 100,
+      response_format: { type: 'json_object' },
       temperature: 0.7,
     });
 
-    const response = completion.choices[0]?.message?.content?.trim() || 
-      "Thank you for your response. Let's move on to the next question.";
-
-    return NextResponse.json({ response });
+    try {
+      const responseContent = completion.choices[0]?.message?.content || '{}';
+      const feedback = JSON.parse(responseContent);
+      
+      return NextResponse.json(feedback);
+    } catch (parseError) {
+      console.error('Error parsing OpenAI response:', parseError);
+      return NextResponse.json({
+        feedback: "There was an issue analyzing your answer. However, when answering technical questions, remember to: 1) Clarify the problem first, 2) Think aloud through your approach, 3) Consider edge cases, and 4) Analyze time/space complexity when appropriate.",
+        strengths: ["Attempted to answer the question"],
+        improvements: ["Provide more structured responses", "Include technical details and examples"],
+        score: 3,
+        follow_up: "Could you expand on your approach with more specific technical details?"
+      });
+    }
   } catch (error) {
-    console.error('Chat error:', error);
+    console.error('Feedback error:', error);
     return NextResponse.json(
       { 
-        response: "I appreciate your answer. Let's continue with the interview." 
+        feedback: "There was an error processing your answer. Please try again.",
+        strengths: [],
+        improvements: [],
+        score: 0,
+        follow_up: ""
       },
-      { status: 200 }
+      { status: 500 }
     );
   }
 } 
