@@ -233,15 +233,34 @@ export default function Home() {
   };
 
   const handleVoiceInput = (transcript: string) => {
-    setUserAnswer(transcript);
-    // Auto-submit answer after voice recording only if there's content
+    console.log("Received transcript:", transcript);
     if (transcript.trim()) {
+      setUserAnswer(transcript);
+      // Auto-submit answer after voice recording only if there's content
       setTimeout(() => {
         handleSubmitAnswer();
-      }, 500);
+      }, 800); // Slightly longer delay to ensure state updates
     }
     setListeningForVoice(false);
   };
+
+  // Handle changes to the conversation array and trigger audio playback for the newest messages
+  useEffect(() => {
+    // Find the last message that needs audio playback
+    const messageToPlay = conversation.findIndex((msg, idx) => 
+      msg.needsAudioPlay && (lastAudioMessageIdRef.current === null || idx > lastAudioMessageIdRef.current)
+    );
+    
+    if (messageToPlay !== -1) {
+      console.log("Playing audio for message:", messageToPlay);
+      lastAudioMessageIdRef.current = messageToPlay;
+    }
+    
+    // Scroll to bottom
+    if (conversationEndRef.current) {
+      conversationEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [conversation]);
 
   const handleRestart = () => {
     setStarted(false);

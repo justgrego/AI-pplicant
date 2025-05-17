@@ -14,10 +14,10 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
   const [error, setError] = useState<string | null>(null);
   const [mockMessage, setMockMessage] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const [hasPlayed, setHasPlayed] = useState(false);
 
   const playAudio = useCallback(async () => {
-    if (!text) {
-      setError('No text provided for audio conversion');
+    if (!text || hasPlayed) {
       return;
     }
 
@@ -25,6 +25,9 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
       setIsLoading(true);
       setError(null);
       setMockMessage(null);
+
+      // Log to help with debugging
+      console.log("Attempting to play audio for text:", text.substring(0, 30) + "...");
 
       const response = await fetch('/api/voice', {
         method: 'POST',
@@ -50,6 +53,7 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
         if (jsonData.mockData) {
           setMockMessage(jsonData.message || 'Using mock audio in development mode');
           setIsLoading(false);
+          setHasPlayed(true);
           return;
         }
       }
@@ -63,10 +67,30 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
       // Update the audio element with the new source
       if (audioRef.current) {
         audioRef.current.src = audioUrl;
-        audioRef.current.play().catch(playError => {
-          console.error('Error playing audio:', playError);
-          setError('Browser blocked audio playback. Please interact with the page first.');
-        });
+        
+        // Set up event listeners before playing
+        audioRef.current.onended = () => {
+          console.log("Audio playback ended");
+          setHasPlayed(true);
+        };
+        
+        audioRef.current.onerror = (e) => {
+          console.error("Audio playback error:", e);
+          setError("Error playing audio");
+        };
+        
+        // Try to play the audio
+        try {
+          const playPromise = audioRef.current.play();
+          if (playPromise) {
+            playPromise.catch(playError => {
+              console.error('Error playing audio:', playError);
+              setError('Browser blocked audio playback. Please interact with the page first.');
+            });
+          }
+        } catch (playError) {
+          console.error("Direct play error:", playError);
+        }
       }
 
       setIsLoading(false);
@@ -75,13 +99,24 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
       setError('Error playing audio');
       setIsLoading(false);
     }
-  }, [text, voiceId]);
+  }, [text, voiceId, hasPlayed]);
 
+  // Effect to handle auto-play
   useEffect(() => {
-    if (autoPlay && text) {
+    if (autoPlay && text && !hasPlayed) {
+      console.log("Auto-playing audio");
       playAudio();
     }
-  }, [text, autoPlay, playAudio]);
+  }, [text, autoPlay, playAudio, hasPlayed]);
+
+  // When component unmounts, clean up any blob URLs
+  useEffect(() => {
+    return () => {
+      if (audioRef.current && audioRef.current.src.startsWith('blob:')) {
+        URL.revokeObjectURL(audioRef.current.src);
+      }
+    };
+  }, []);
 
   if (hideControls) {
     return (
@@ -104,7 +139,7 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
 
       <button
         onClick={playAudio}
-        disabled={isLoading || !text}
+        disabled={isLoading || !text || hasPlayed}
         className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white"
       >
         {isLoading ? (
@@ -127,7 +162,7 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
             <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
           </svg>
         )}
-        {isLoading ? 'Generating Audio...' : 'Listen'}
+        {isLoading ? 'Generating Audio...' : hasPlayed ? 'Played' : 'Listen'}
       </button>
       {error && <p className="text-red-500 mt-2">{error}</p>}
     </div>
