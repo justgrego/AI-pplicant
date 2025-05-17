@@ -140,7 +140,10 @@ export default function AudioPlayer({
     // Only play if not already played and autoPlay is true
     if (autoPlay && !alreadyPlayed) {
       console.log("AudioPlayer: Auto-playing audio for message", messageId);
-      playAudioOnce();
+      // Use a small timeout to ensure the component is fully mounted
+      setTimeout(() => {
+        playAudioOnce();
+      }, 100);
     }
     
     // Store current audio ref for cleanup

@@ -232,6 +232,13 @@ export default function VoiceRecorder({
     
     console.log("VoiceRecorder: Stopping recognition");
     
+    // If we have a transcript, submit it immediately before cleaning up
+    if (transcript.trim()) {
+      console.log("VoiceRecorder: Submitting final transcript on stop:", transcript);
+      onTranscription(transcript);
+      setTranscript('');
+    }
+    
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -254,7 +261,7 @@ export default function VoiceRecorder({
     // Clean up audio resources
     cleanupAudio();
     setRecording(false);
-  }, [cleanupAudio, recording]);
+  }, [cleanupAudio, recording, transcript, onTranscription]);
   
   // Start media recording (fallback) - memoized with useCallback
   const startMediaRecording = useCallback(async () => {
@@ -347,7 +354,15 @@ export default function VoiceRecorder({
             
             // Set transcript and call callback
             if (data.transcript) {
-              onTranscription(data.transcript);
+              // Make sure we have a valid transcript before calling back
+              const processedTranscript = data.transcript.trim();
+              if (processedTranscript.length > 0) {
+                console.log("VoiceRecorder: Calling onTranscription with:", processedTranscript);
+                // Call onTranscription immediately with the received transcript
+                onTranscription(processedTranscript);
+              } else {
+                setError("No speech detected in recording. Please try again.");
+              }
               setTranscript('');
             } else {
               setError("No speech detected. Please try again.");
@@ -578,9 +593,9 @@ export default function VoiceRecorder({
       <div className="flex flex-col items-center justify-center">
         <div className="flex items-center justify-center mb-2">
           <div className={`w-4 h-4 rounded-full ${recording ? 'bg-red-500 animate-pulse' : 'bg-gray-400'}`}></div>
-        <span className="ml-2 text-sm text-gray-300">
-          {recording ? 'Recording voice...' : 'Voice recorder ready'}
-        </span>
+          <span className="ml-2 text-sm text-gray-300">
+            {recording ? 'Recording voice...' : 'Voice recorder ready'}
+          </span>
         </div>
         
         {/* Audio level visualization */}

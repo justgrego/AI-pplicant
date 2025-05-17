@@ -16,6 +16,8 @@ interface FeedbackResponse {
   improvements: string[];
   score: number;
   follow_up: string;
+  follow_up_question?: string;
+  follow_up_category?: string;
 }
 
 interface ConversationMessage {
@@ -48,13 +50,28 @@ export default function Home() {
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const lastAudioMessageIdRef = useRef<number | null>(null);
 
-  // Scroll to bottom whenever conversation changes
+  // Handle changes to the conversation array and trigger audio playback for the newest messages
   useEffect(() => {
-    // Find the last message that needs audio playback
-    if (conversation.length > 0) {
-      const lastIndex = conversation.length - 1;
-      if (conversation[lastIndex].needsAudioPlay) {
-        lastAudioMessageIdRef.current = lastIndex;
+    console.log("Conversation updated:", conversation.length, "messages");
+    
+    // Auto-play audio for messages that need it if not already playing
+    if (conversation.length > 0 && !isSpeaking) {
+      // Find the last message that needs audio playback
+      let foundAudioMessage = false;
+      
+      // Search from the most recent message backwards
+      for (let i = conversation.length - 1; i >= 0; i--) {
+        if (conversation[i].needsAudioPlay) {
+          console.log("Found message needing audio playback:", i);
+          lastAudioMessageIdRef.current = i;
+          foundAudioMessage = true;
+          break;
+        }
+      }
+      
+      // If no message is already set to play and we found one, set it
+      if (!foundAudioMessage) {
+        console.log("No messages need audio playback");
       }
     }
     
@@ -62,7 +79,7 @@ export default function Home() {
     if (conversationEndRef.current) {
       conversationEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [conversation]);
+  }, [conversation, isSpeaking]);
 
   const handleStartInterview = async () => {
     if (!jobDescription || !company) {
@@ -73,6 +90,7 @@ export default function Home() {
     setIsLoading(true);
     setError(null);
     setConversation([]);
+    lastAudioMessageIdRef.current = null; // Reset any audio playback state
     
     try {
       const response = await fetch('/api/interview', {
@@ -83,7 +101,8 @@ export default function Home() {
         body: JSON.stringify({
           company,
           jobDescription,
-          interviewMode, // Send the interview mode to the API
+          interviewMode,
+          initialQuestionsOnly: true // Signal that we only need 1-2 starter questions
         }),
       });
 
@@ -97,28 +116,38 @@ export default function Home() {
         setQuestions(data.questions);
         setCurrentQuestionIndex(0);
         
-        // Create welcome message with summarized version for speech
-        const welcomeMessage = `Welcome to your ${interviewMode} interview with ${company}. I'll be asking you some questions to evaluate your ${interviewMode === 'technical' ? 'technical skills' : 'fit for the role'}. Let's start with the first question.`;
-        const summarizedWelcome = `Welcome to your ${interviewMode} interview with ${company}. Let's begin.`;
+        // Create a more conversational welcome message with adaptive interview explanation
+        const welcomeMessage = `Welcome to your ${interviewMode} interview preparation for ${company}. I'll adapt my questions based on your answers to create a natural conversation, just like in a real interview. This will help you improve your interviewing skills for the ${company} position. Let's start with the first question.`;
+        const summarizedWelcome = `Welcome to your ${interviewMode} interview with ${company}. This interview will adapt to your responses. Let's begin.`;
         
-        // Add welcome message and first question to conversation
+        console.log("Starting interview with initial messages");
+        
+        // First add just the welcome message
         setConversation([
           {
             role: 'interviewer',
             content: welcomeMessage,
             summarizedContent: summarizedWelcome,
             needsAudioPlay: true
-          },
-          {
-            role: 'interviewer',
-            content: data.questions[0].question,
-            question: data.questions[0],
-            summarizedContent: data.questions[0].question,
-            needsAudioPlay: true
           }
         ]);
         
+        // Start the interview
         setStarted(true);
+        
+        // Add the first question after a brief delay to allow the welcome message to be processed
+        setTimeout(() => {
+          setConversation(prev => [
+            ...prev,
+            {
+              role: 'interviewer',
+              content: data.questions[0].question,
+              question: data.questions[0],
+              summarizedContent: data.questions[0].question,
+              needsAudioPlay: true
+            }
+          ]);
+        }, 500);
       } else {
         setError('Failed to generate interview questions. Please try again.');
       }
@@ -149,8 +178,12 @@ export default function Home() {
     ]);
 
     try {
-      // Get feedback on the answer
-      const currentQuestion = questions[currentQuestionIndex];
+      // Get the current question if available
+      const currentQuestion = currentQuestionIndex < questions.length 
+        ? questions[currentQuestionIndex] 
+        : null;
+      
+      // Get feedback on the answer and generate a dynamic follow-up question
       const feedbackResponse = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -158,11 +191,19 @@ export default function Home() {
         },
         body: JSON.stringify({
           userAnswer,
-          question: currentQuestion.question,
-          category: currentQuestion.category,
-          difficulty: currentQuestion.difficulty,
+          question: currentQuestion?.question || "Tell me about yourself",
+          category: currentQuestion?.category || "General",
+          difficulty: currentQuestion?.difficulty || "Medium",
           company,
-          interviewMode, // Send interview mode to get appropriate feedback
+          interviewMode,
+          // Include conversation history to enable more natural follow-ups
+          conversationHistory: conversation
+            .map(msg => ({
+              role: msg.role === 'candidate' ? 'user' : 'assistant',
+              content: msg.content
+            }))
+            .slice(-6), // Include last 6 messages for context
+          generateFollowUp: true // Signal that we want a dynamic follow-up question
         }),
       });
 
@@ -189,12 +230,33 @@ export default function Home() {
         }
       ]);
       
-      // The next question will be added by handleAudioPlaybackEnded after feedback audio finishes
-      // We only need to handle the end of interview case here
-      if (currentQuestionIndex >= questions.length - 1) {
-        // Interview completed
+      // Check if we have a follow-up question from the API
+      if (feedback.follow_up_question) {
+        // Increment question counter
+        setCurrentQuestionIndex(prevIndex => prevIndex + 1);
+        
+        // Set timeout to add the follow-up question after feedback is processed
         setTimeout(() => {
-          const concludingMessage = "That concludes our technical interview. Thank you for your time and thoughtful responses. Do you have any questions for me?";
+          // Add the dynamic follow-up question to conversation
+          setConversation(prev => [
+            ...prev, 
+            { 
+              role: 'interviewer', 
+              content: feedback.follow_up_question,
+              question: {
+                question: feedback.follow_up_question,
+                category: feedback.follow_up_category || currentQuestion?.category || "Follow-up",
+                difficulty: currentQuestion?.difficulty || "Medium"
+              },
+              summarizedContent: feedback.follow_up_question,
+              needsAudioPlay: true
+            }
+          ]);
+        }, 500);
+      } else if (currentQuestionIndex >= questions.length - 1) {
+        // If no follow-up and we've reached the end of pre-generated questions, conclude
+        setTimeout(() => {
+          const concludingMessage = "That concludes our interview. Thank you for your thoughtful responses. I hope this practice helps you in your actual interview with " + company + ".";
           setConversation(prev => [
             ...prev, 
             { 
@@ -219,9 +281,12 @@ export default function Home() {
 
   // Request microphone permission before starting recording
   const handleVoiceButtonClick = async () => {
-    // If already recording, stop it
+    // If already recording, stop it and reset error state
     if (listeningForVoice) {
+      console.log("Stopping voice recording");
       setListeningForVoice(false);
+      // Reset any error state that might have been set
+      setError(null);
       return;
     }
     
@@ -230,6 +295,9 @@ export default function Home() {
       setError("Please wait for the interviewer to finish speaking.");
       return;
     }
+    
+    // Also reset error state when starting recording
+    setError(null);
 
     try {
       // Check if we already have permission
@@ -247,8 +315,8 @@ export default function Home() {
       
       // If we reach here, permission was granted
       setMicPermissionState('granted');
+      console.log("Voice recording activated");
       setListeningForVoice(true);
-      setError(null);
     } catch (err) {
       console.error('Error accessing microphone:', err);
       setError('Failed to access microphone. Please check your browser permissions.');
@@ -258,28 +326,139 @@ export default function Home() {
   const handleVoiceInput = (transcript: string) => {
     console.log("Received voice transcript:", transcript);
     if (transcript.trim()) {
+      // Set answer and submit immediately in the same event loop
       setUserAnswer(transcript);
-      // Auto-submit answer immediately after voice recording
-      handleSubmitAnswer();
-    }
-    setListeningForVoice(false);
-  };
+      
+      // Use the transcript directly rather than relying on the state update
+      // This ensures we process the transcript immediately without waiting for state updates
+      const submitAnswer = async (answerText: string) => {
+        if (!answerText.trim()) return;
+        
+        console.log("Submitting answer to OpenAI:", answerText);
+        setIsSubmittingAnswer(true);
+        setError(null);
+        
+        // Add user's answer to conversation
+        setConversation(prev => [
+          ...prev, 
+          { 
+            role: 'candidate', 
+            content: answerText,
+          }
+        ]);
+        
+        try {
+          // Get the current question if available
+          const currentQuestion = currentQuestionIndex < questions.length 
+            ? questions[currentQuestionIndex] 
+            : null;
+          
+          // Prepare conversation history with the current answer included
+          const conversationWithCurrentAnswer = [
+            ...conversation.map(msg => ({
+              role: msg.role === 'candidate' ? 'user' : 'assistant',
+              content: msg.content
+            })).slice(-6),
+            { role: 'user', content: answerText }
+          ];
+          
+          // Get feedback on the answer and generate a dynamic follow-up question
+          const feedbackResponse = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              userAnswer: answerText, // Make sure this is the actual transcript text
+              question: currentQuestion?.question || "Tell me about yourself",
+              category: currentQuestion?.category || "General",
+              difficulty: currentQuestion?.difficulty || "Medium",
+              company,
+              interviewMode,
+              conversationHistory: conversationWithCurrentAnswer,
+              generateFollowUp: true
+            }),
+          });
 
-  // Handle changes to the conversation array and trigger audio playback for the newest messages
-  useEffect(() => {
-    // Find the last message that needs audio playback
-    if (conversation.length > 0) {
-      const lastIndex = conversation.length - 1;
-      if (conversation[lastIndex].needsAudioPlay) {
-        lastAudioMessageIdRef.current = lastIndex;
-      }
+          if (!feedbackResponse.ok) {
+            throw new Error('Failed to get feedback on answer');
+          }
+
+          const feedback = await feedbackResponse.json();
+
+          // Create a summarized version of the feedback for speech
+          const summarizedFeedback = `${feedback.score >= 4 ? 'Good answer! ' : 'Thanks for your answer. '} 
+            ${feedback.strengths[0]}. However, ${feedback.improvements[0]}. 
+            Your score is ${feedback.score} out of 5.`;
+
+          // Add feedback to conversation
+          setConversation(prev => [
+            ...prev, 
+            { 
+              role: 'feedback', 
+              content: feedback.feedback,
+              feedback: feedback,
+              summarizedContent: summarizedFeedback,
+              needsAudioPlay: true
+            }
+          ]);
+          
+          // Check if we have a follow-up question from the API
+          if (feedback.follow_up_question) {
+            // Increment question counter
+            setCurrentQuestionIndex(prevIndex => prevIndex + 1);
+            
+            // Set timeout to add the follow-up question after feedback is processed
+            setTimeout(() => {
+              // Add the dynamic follow-up question to conversation
+              setConversation(prev => [
+                ...prev, 
+                { 
+                  role: 'interviewer', 
+                  content: feedback.follow_up_question,
+                  question: {
+                    question: feedback.follow_up_question,
+                    category: feedback.follow_up_category || currentQuestion?.category || "Follow-up",
+                    difficulty: currentQuestion?.difficulty || "Medium"
+                  },
+                  summarizedContent: feedback.follow_up_question,
+                  needsAudioPlay: true
+                }
+              ]);
+            }, 500);
+          } else if (currentQuestionIndex >= questions.length - 1) {
+            // Interview completed
+            setTimeout(() => {
+              const concludingMessage = "That concludes our interview. Thank you for your thoughtful responses. I hope this practice helps you in your actual interview with " + company + ".";
+              setConversation(prev => [
+                ...prev, 
+                { 
+                  role: 'interviewer', 
+                  content: concludingMessage,
+                  summarizedContent: "That's all for today. Thanks for participating in this interview simulation.",
+                  needsAudioPlay: true
+                }
+              ]);
+            }, 1000);
+          }
+
+          // Clear the answer for the next question
+          setUserAnswer('');
+        } catch (error) {
+          console.error('Error submitting answer:', error);
+          setError('Failed to submit answer. Please try again.');
+        } finally {
+          setIsSubmittingAnswer(false);
+        }
+      };
+      
+      // Process the transcript immediately
+      submitAnswer(transcript);
     }
     
-    // Scroll to bottom
-    if (conversationEndRef.current) {
-      conversationEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [conversation]);
+    // Stop recording mode
+    setListeningForVoice(false);
+  };
 
   const handleRestart = () => {
     setStarted(false);
@@ -300,32 +479,22 @@ export default function Home() {
     console.log("Audio playback ended for message", lastAudioMessageIdRef.current);
     setIsSpeaking(false);
     
-    // Reset the audio message reference to ensure we don't replay the same message
+    // Get the current message that just finished playing
     const currentAudioIndex = lastAudioMessageIdRef.current;
     lastAudioMessageIdRef.current = null;
     
-    // If this was a feedback message, proceed to ask the next question
-    if (currentAudioIndex !== null && conversation[currentAudioIndex].role === 'feedback') {
-      console.log("Feedback message playback completed, proceeding to next question");
-      
-      // If there are more questions, add the next one after a short delay
-      if (currentQuestionIndex < questions.length - 1) {
-        const nextQuestionIndex = currentQuestionIndex + 1;
-        setCurrentQuestionIndex(nextQuestionIndex);
-        
-        // Add next question to conversation after a short delay
-        setTimeout(() => {
-          setConversation(prev => [
-            ...prev, 
-            { 
-              role: 'interviewer', 
-              content: questions[nextQuestionIndex].question,
-              question: questions[nextQuestionIndex],
-              summarizedContent: questions[nextQuestionIndex].question,
-              needsAudioPlay: true
-            }
-          ]);
-        }, 500);
+    // Check if there are any messages after this one that need audio playback
+    if (currentAudioIndex !== null && conversation.length > currentAudioIndex + 1) {
+      // Find the next message that needs audio playback
+      for (let i = currentAudioIndex + 1; i < conversation.length; i++) {
+        if (conversation[i].needsAudioPlay) {
+          console.log("Auto-playing next audio message:", i);
+          // Set this as the next audio message to be played
+          setTimeout(() => {
+            lastAudioMessageIdRef.current = i;
+          }, 500); // Small delay for natural conversation flow
+          return;
+        }
       }
     }
   };
