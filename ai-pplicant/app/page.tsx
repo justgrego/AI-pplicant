@@ -136,6 +136,7 @@ export default function Home() {
   }, [conversation, isSpeaking]);
 
   // Create natural, concise, company-specific feedback
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const createAudioFriendlyFeedback = (feedback: FeedbackResponse, questionText?: string, userAnswer?: string) => {
     // Extract feedback elements
     const strengths = feedback.strengths || [];
