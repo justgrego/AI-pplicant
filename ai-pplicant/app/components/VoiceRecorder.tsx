@@ -1,327 +1,153 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
-// Define interface for speech recognition
-interface SpeechRecognitionInstance extends EventTarget {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  start(): void;
-  stop(): void;
-  onresult: (event: Event) => void;
-  onerror: (event: Event) => void;
-  onend: () => void;
-}
-
-// Add type definitions for the WebSpeechAPI
+// Declare global types for Web Speech API
 declare global {
   interface Window {
-    SpeechRecognition: { new(): SpeechRecognitionInstance };
-    webkitSpeechRecognition: { new(): SpeechRecognitionInstance };
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
   }
-}
-
-// Define types for the speech recognition events
-interface SpeechRecognitionEvent extends Event {
-  results: {
-    transcript: string;
-  }[][];
-  resultIndex: number;
-}
-
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
 }
 
 interface VoiceRecorderProps {
   onTranscription: (text: string) => void;
   isListening?: boolean;
-  autoStopAfterSilence?: boolean; // Add option to disable automatic stopping
+  autoStopAfterSilence?: boolean;
 }
 
 export default function VoiceRecorder({ 
   onTranscription, 
-  isListening = false, 
-  autoStopAfterSilence = false // Default to not auto-stopping
+  isListening = false,
+  autoStopAfterSilence = false
 }: VoiceRecorderProps) {
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [permissionGranted, setPermissionGranted] = useState(false);
-  const [transcript, setTranscript] = useState("");
-  const [isSilent, setIsSilent] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-
-  // Stop recording and process audio
-  const stopRecording = useCallback(() => {
-    // Clear silence timer
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
+  const [transcript, setTranscript] = useState('');
+  
+  // Initialize recognition as null
+  const recognitionRef = useRef<any>(null);
+  
+  // Handle changes to the isListening prop
+  useEffect(() => {
+    console.log("VoiceRecorder: isListening changed to", isListening);
+    
+    if (isListening) {
+      startRecognition();
+    } else {
+      stopRecognition();
     }
     
-    // Stop speech recognition if active
+    // Clean up on unmount
+    return () => {
+      stopRecognition();
+    };
+  }, [isListening]);
+  
+  // Start speech recognition
+  const startRecognition = () => {
+    try {
+      console.log("VoiceRecorder: Starting recognition");
+      
+      // Reset state
+      setTranscript('');
+      setError(null);
+      
+      // Get speech recognition constructor
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      
+      if (!SpeechRecognition) {
+        console.error("VoiceRecorder: SpeechRecognition not supported by browser");
+        setError("Speech recognition not supported by your browser");
+        return;
+      }
+      
+      // Create new recognition instance
+      const recognition = new SpeechRecognition();
+      
+      // Configure recognition
+      recognition.lang = 'en-US';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      
+      // Save reference
+      recognitionRef.current = recognition;
+      
+      // Handle results
+      recognition.onresult = (event: any) => {
+        console.log("VoiceRecorder: Got speech result");
+        
+        // Get latest result
+        const result = event.results[event.results.length - 1];
+        const transcript = result[0].transcript;
+        console.log("VoiceRecorder: Transcript:", transcript);
+        
+        // Update transcript
+        setTranscript(transcript);
+      };
+      
+      // Handle end event
+      recognition.onend = () => {
+        console.log("VoiceRecorder: Recognition ended, transcript:", transcript);
+        
+        // If we have a transcript, submit it
+        if (transcript) {
+          onTranscription(transcript);
+        }
+        
+        // If still listening, restart recognition
+        if (isListening) {
+          try {
+            recognition.start();
+            console.log("VoiceRecorder: Recognition restarted");
+          } catch (error) {
+            console.error("VoiceRecorder: Failed to restart recognition", error);
+          }
+        }
+        
+        setRecording(false);
+      };
+      
+      // Handle errors
+      recognition.onerror = (event: any) => {
+        console.error("VoiceRecorder: Recognition error:", event.error);
+        setError(`Speech recognition error: ${event.error}`);
+      };
+      
+      // Start recognition
+      recognition.start();
+      setRecording(true);
+      console.log("VoiceRecorder: Recognition started");
+      
+    } catch (error) {
+      console.error("VoiceRecorder: Failed to start recognition", error);
+      setError("Failed to start voice recording");
+    }
+  };
+  
+  // Stop speech recognition
+  const stopRecognition = () => {
+    console.log("VoiceRecorder: Stopping recognition");
+    
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
-      } catch {
-        console.error("Error stopping speech recognition");
+        console.log("VoiceRecorder: Recognition stopped");
+      } catch (error) {
+        console.error("VoiceRecorder: Error stopping recognition", error);
       }
+      
+      // Clear reference
       recognitionRef.current = null;
     }
     
-    // Stop media recorder if active
-    if (mediaRecorderRef.current) {
-      try {
-        // Only stop if it's recording
-        if ('state' in mediaRecorderRef.current && 
-            mediaRecorderRef.current.state === 'recording') {
-          mediaRecorderRef.current.stop();
-        }
-      } catch {
-        console.error("Error stopping media recorder");
-      }
-    }
-    
     setRecording(false);
-    
-    // Submit the transcript we've collected so far
-    if (transcript) {
-      onTranscription(transcript);
-    }
-  }, [recording, onTranscription, transcript]);
-
-  // Auto-stop recording after silence (only if enabled)
-  const resetSilenceTimer = useCallback(() => {
-    if (!autoStopAfterSilence) return; // Skip if auto-stop is disabled
-    
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-    }
-    
-    // Stop recording after 2 seconds of silence
-    silenceTimerRef.current = setTimeout(() => {
-      if (recording && transcript) {
-        console.log("Detected silence, stopping recording");
-        setIsSilent(true);
-        stopRecording();
-      }
-    }, 2000);
-  }, [recording, transcript, autoStopAfterSilence, stopRecording]);
-
-  // Process audio blob to get transcription
-  const processAudio = useCallback(async (audioBlob: Blob) => {
-    try {
-      // Create FormData to send the audio file
-      const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.wav');
-      
-      const response = await fetch('/api/transcribe', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to transcribe audio');
-      }
-      
-      const data = await response.json();
-      onTranscription(data.transcript);
-    } catch (err) {
-      console.error('Error processing audio:', err);
-      setError('Failed to process audio');
-    }
-  }, [onTranscription]);
-
-  // Request microphone permission
-  useEffect(() => {
-    const requestMicrophonePermission = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setPermissionGranted(true);
-        // Clean up the stream when component unmounts
-        return () => {
-          stream.getTracks().forEach(track => track.stop());
-        };
-      } catch (err) {
-        console.error('Error accessing microphone:', err);
-        setError('Microphone access denied. Please enable microphone permissions.');
-        setPermissionGranted(false);
-      }
-    };
-
-    requestMicrophonePermission();
-  }, []);
-
-  const startRecording = useCallback(async () => {
-    if (!permissionGranted) {
-      setError('Microphone permission not granted');
-      return;
-    }
-
-    try {
-      setError(null);
-      setTranscript("");
-      setIsSilent(false);
-      
-      // Get audio stream for microphone
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Try using the browser's SpeechRecognition API first (more seamless)
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      
-      if (SpeechRecognition) {
-        // If browser supports SpeechRecognition, use it directly
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'en-US';
-        recognition.continuous = true; // Keep listening
-        recognition.interimResults = true; // Get results as user speaks
-        
-        // Store recognition instance for later stopping
-        recognitionRef.current = recognition;
-        
-        // Handle results from speech recognition
-        recognition.onresult = (event: Event) => {
-          const speechEvent = event as unknown as SpeechRecognitionEvent;
-          let currentTranscript = '';
-          
-          // Collect all results to build a full transcript
-          for (let i = 0; i < speechEvent.results.length; i++) {
-            if (speechEvent.results[i] && 
-                speechEvent.results[i][0] && 
-                speechEvent.results[i][0].transcript) {
-              currentTranscript += speechEvent.results[i][0].transcript + ' ';
-            }
-          }
-          
-          if (currentTranscript.trim()) {
-            setTranscript(currentTranscript.trim());
-            console.log("Transcript updated:", currentTranscript.trim());
-            
-            if (autoStopAfterSilence) {
-              resetSilenceTimer(); // Reset silence timer when speech is detected
-            }
-          }
-        };
-        
-        // Handle speech recognition errors
-        recognition.onerror = (event: Event) => {
-          const errorEvent = event as unknown as SpeechRecognitionErrorEvent;
-          if (errorEvent.error !== 'no-speech') { // Ignore no-speech errors
-            console.error('Speech recognition error', errorEvent.error);
-            setError('Speech recognition error: ' + errorEvent.error);
-          }
-        };
-        
-        // Handle recognition ending
-        recognition.onend = () => {
-          // If auto-stop is enabled and we have silence
-          if (autoStopAfterSilence && isSilent && transcript) {
-            onTranscription(transcript);
-          } else if (recording) {
-            // If recognition ended but we're still supposed to be recording, restart it
-            try {
-              recognition.start();
-            } catch {
-              console.error("Error restarting speech recognition");
-            }
-          }
-        };
-        
-        // Start recognition
-        try {
-          recognition.start();
-          setRecording(true);
-          console.log("Speech recognition started");
-        } catch (err) {
-          console.error("Failed to start speech recognition:", err);
-          // Fallback to MediaRecorder if speech recognition fails
-          setupMediaRecorder(stream);
-        }
-      } else {
-        // Fallback to MediaRecorder approach
-        setupMediaRecorder(stream);
-      }
-    } catch (err) {
-      console.error('Error starting recording:', err);
-      setError('Failed to start recording');
-    }
-  }, [permissionGranted, onTranscription, resetSilenceTimer, transcript, isSilent, processAudio, autoStopAfterSilence, recording]);
-
-  // Set up MediaRecorder as fallback
-  const setupMediaRecorder = useCallback((stream: MediaStream) => {
-    try {
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        if (audioChunksRef.current.length > 0) {
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-          await processAudio(audioBlob);
-        }
-        // Release microphone
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.start();
-      setRecording(true);
-      console.log("MediaRecorder started (fallback)");
-      
-      // Set up the silence timer if auto-stop is enabled
-      if (autoStopAfterSilence) {
-        resetSilenceTimer();
-      }
-    } catch (err) {
-      console.error("Error setting up MediaRecorder:", err);
-      setError("Could not initialize audio recording");
-    }
-  }, [processAudio, autoStopAfterSilence, resetSilenceTimer]);
-
-  // Handle automatic listening mode
-  useEffect(() => {
-    if (isListening && permissionGranted && !recording) {
-      startRecording();
-    } else if (!isListening && recording) {
-      stopRecording();
-    }
-  }, [isListening, permissionGranted, recording, startRecording, stopRecording]);
-
-  // Clean up on unmount
-  useEffect(() => {
-    return () => {
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
-      }
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch {
-          // Ignore errors during cleanup
-        }
-      }
-      if (mediaRecorderRef.current && recording) {
-        stopRecording();
-      }
-    };
-  }, [recording, stopRecording]);
-
-  // Simplified UI just for visual feedback (mostly hidden in main UI)
+  };
+  
+  // Simple UI
   return (
     <div className={recording ? "block" : "hidden"}>
       {error && <p className="text-red-500 mb-2">{error}</p>}
       <div className="flex items-center justify-center">
-        <div className={`w-3 h-3 rounded-full ${recording ? 'bg-red-600 animate-ping' : 'bg-gray-400'}`}></div>
-      </div>
-    </div>
-  );
-} 
+        <div className={`
