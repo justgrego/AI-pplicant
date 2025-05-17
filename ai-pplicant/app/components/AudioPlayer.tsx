@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
 interface AudioPlayerProps {
   text: string;
@@ -15,15 +15,8 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
   const [mockMessage, setMockMessage] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  // Play audio immediately on mount if autoPlay is true
-  useEffect(() => {
-    if (autoPlay && text) {
-      console.log("AudioPlayer: Auto-playing audio for:", text.substring(0, 30) + "...");
-      playAudio();
-    }
-  }, []);
-
-  async function playAudio() {
+  // Using useCallback to avoid recreation on each render
+  const playAudio = useCallback(async () => {
     if (!text) {
       return;
     }
@@ -89,7 +82,15 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
       setError('Error playing audio');
       setIsLoading(false);
     }
-  }
+  }, [text, voiceId]);
+
+  // Play audio immediately on mount if autoPlay is true
+  useEffect(() => {
+    if (autoPlay && text) {
+      console.log("AudioPlayer: Auto-playing audio for:", text.substring(0, 30) + "...");
+      playAudio();
+    }
+  }, [autoPlay, text, playAudio]);
 
   if (hideControls) {
     return (
