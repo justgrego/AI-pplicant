@@ -228,10 +228,10 @@ export default function Home() {
 
       const feedback = await feedbackResponse.json();
 
-      // Create a summarized version of the feedback for speech
+      // Create a summarized version of the feedback for speech - make it more conversational for audio
       const summarizedFeedback = `${feedback.score >= 4 ? 'Good answer! ' : 'Thanks for your answer. '} 
         ${feedback.strengths[0]}. However, ${feedback.improvements[0]}. 
-        Your score is ${feedback.score} out of 5.`;
+        Your score is ${feedback.score} out of 5. ${feedback.follow_up || ''}`;
 
       // Add feedback to conversation
       setConversation(prev => [
@@ -401,10 +401,10 @@ export default function Home() {
 
           const feedback = await feedbackResponse.json();
 
-          // Create a summarized version of the feedback for speech
+          // Create a summarized version of the feedback for speech - make it more conversational for audio
           const summarizedFeedback = `${feedback.score >= 4 ? 'Good answer! ' : 'Thanks for your answer. '} 
             ${feedback.strengths[0]}. However, ${feedback.improvements[0]}. 
-            Your score is ${feedback.score} out of 5.`;
+            Your score is ${feedback.score} out of 5. ${feedback.follow_up || ''}`;
 
           // Add feedback to conversation
           setConversation(prev => [
@@ -491,73 +491,76 @@ export default function Home() {
   };
 
   const handleAudioPlaybackEnded = () => {
-    console.log("Audio playback ended for message", lastAudioMessageIdRef.current);
+    const currentAudioIndex = lastAudioMessageIdRef.current;
+    console.log(`Audio playback ended for message ${currentAudioIndex}, message type: ${currentAudioIndex !== null ? conversation[currentAudioIndex]?.role : 'none'}`);
     setIsSpeaking(false);
     
     // Get the current message that just finished playing
-    const currentAudioIndex = lastAudioMessageIdRef.current;
     lastAudioMessageIdRef.current = null;
     
-    // Check if there are any messages after this one that need audio playback
-    if (currentAudioIndex !== null && conversation.length > currentAudioIndex + 1) {
-      // Find the next message that needs audio playback
-      for (let i = currentAudioIndex + 1; i < conversation.length; i++) {
-        if (conversation[i].needsAudioPlay) {
-          console.log("Auto-playing next audio message:", i);
-          // Set this as the next audio message to be played
-          setTimeout(() => {
-            lastAudioMessageIdRef.current = i;
-          }, 500); // Small delay for natural conversation flow
-          return;
+    // Wait a moment before processing next playback to ensure state updates
+    setTimeout(() => {
+      // Check if there are any messages after this one that need audio playback
+      if (currentAudioIndex !== null && conversation.length > currentAudioIndex + 1) {
+        // Find the next message that needs audio playback
+        for (let i = currentAudioIndex + 1; i < conversation.length; i++) {
+          if (conversation[i].needsAudioPlay) {
+            console.log("Auto-playing next audio message:", i);
+            // Set this as the next audio message to be played
+            setTimeout(() => {
+              lastAudioMessageIdRef.current = i;
+            }, 500); // Small delay for natural conversation flow
+            return;
+          }
         }
       }
-    }
-    
-    // If we don't find any message to play next and the last played message was feedback,
-    // check if we need to manually advance to a follow-up question
-    if (currentAudioIndex !== null && 
-        conversation[currentAudioIndex]?.role === 'feedback' &&
-        currentAudioIndex === conversation.length - 1) {
       
-      console.log("Feedback message was the last one played, might need to trigger follow-up");
-      
-      // Check if we have feedback data with a follow-up question
-      const feedbackMsg = conversation[currentAudioIndex];
-      if (feedbackMsg?.feedback?.follow_up_question) {
-        console.log("Found follow-up question in feedback, will add it to conversation");
+      // If we don't find any message to play next and the last played message was feedback,
+      // check if we need to manually advance to a follow-up question
+      if (currentAudioIndex !== null && 
+          conversation[currentAudioIndex]?.role === 'feedback' &&
+          currentAudioIndex === conversation.length - 1) {
         
-        // Get the current question
-        const currentQuestion = currentQuestionIndex < questions.length 
-          ? questions[currentQuestionIndex] 
-          : null;
+        console.log("Feedback message was the last one played, might need to trigger follow-up");
         
-        // Get safe values with proper type checks
-        const followUpQuestion = feedbackMsg.feedback?.follow_up_question || "";
-        const followUpCategory = feedbackMsg.feedback?.follow_up_category || currentQuestion?.category || "Follow-up";
-        const questionDifficulty = currentQuestion?.difficulty || "Medium";
-        
-        // Increment question counter
-        setCurrentQuestionIndex(prevIndex => prevIndex + 1);
-        
-        // Add the follow-up question with a delay
-        setTimeout(() => {
-          setConversation(prev => [
-            ...prev, 
-            { 
-              role: 'interviewer', 
-              content: followUpQuestion,
-              question: {
-                question: followUpQuestion,
-                category: followUpCategory,
-                difficulty: questionDifficulty
-              },
-              summarizedContent: followUpQuestion,
-              needsAudioPlay: true
-            }
-          ]);
-        }, 1000);
+        // Check if we have feedback data with a follow-up question
+        const feedbackMsg = conversation[currentAudioIndex];
+        if (feedbackMsg?.feedback?.follow_up_question) {
+          console.log("Found follow-up question in feedback, will add it to conversation");
+          
+          // Get the current question
+          const currentQuestion = currentQuestionIndex < questions.length 
+            ? questions[currentQuestionIndex] 
+            : null;
+          
+          // Get safe values with proper type checks
+          const followUpQuestion = feedbackMsg.feedback?.follow_up_question || "";
+          const followUpCategory = feedbackMsg.feedback?.follow_up_category || currentQuestion?.category || "Follow-up";
+          const questionDifficulty = currentQuestion?.difficulty || "Medium";
+          
+          // Increment question counter
+          setCurrentQuestionIndex(prevIndex => prevIndex + 1);
+          
+          // Add the follow-up question with a delay
+          setTimeout(() => {
+            setConversation(prev => [
+              ...prev, 
+              { 
+                role: 'interviewer', 
+                content: followUpQuestion,
+                question: {
+                  question: followUpQuestion,
+                  category: followUpCategory,
+                  difficulty: questionDifficulty
+                },
+                summarizedContent: followUpQuestion,
+                needsAudioPlay: true
+              }
+            ]);
+          }, 1000);
+        }
       }
-    }
+    }, 300); // Short delay to ensure state is updated
   };
 
   // Use effect to check microphone permission on component mount
@@ -588,7 +591,24 @@ export default function Home() {
     
     // If no message is currently playing audio and there's no current audio index
     if (!isSpeaking && lastAudioMessageIdRef.current === null && conversation.length > 0) {
-      // Find the first message that needs audio playback
+      // First check for any feedback messages that need audio playback
+      // We prioritize feedback messages since those might be getting missed
+      for (let i = conversation.length - 1; i >= 0; i--) {
+        if (conversation[i].role === 'feedback' && conversation[i].needsAudioPlay) {
+          console.log(`Found feedback message ${i} that needs audio playback:`, 
+            conversation[i].content.substring(0, 30) + "...");
+          
+          // Trigger audio playback with a small delay
+          setTimeout(() => {
+            console.log(`Setting lastAudioMessageIdRef to ${i} (feedback message)`);
+            lastAudioMessageIdRef.current = i;
+          }, 500);
+          
+          return; // Exit after finding first message to play
+        }
+      }
+      
+      // If no feedback messages need playing, check any message type
       for (let i = 0; i < conversation.length; i++) {
         if (conversation[i].needsAudioPlay) {
           console.log(`Found message ${i} that needs audio playback:`, 
@@ -604,6 +624,15 @@ export default function Home() {
           break;
         }
       }
+    }
+    
+    // Debug log the current conversation state with audio needs
+    const audioMessages = conversation
+      .map((msg, idx) => ({ index: idx, role: msg.role, needsAudio: !!msg.needsAudioPlay }))
+      .filter(m => m.needsAudio);
+    
+    if (audioMessages.length > 0) {
+      console.log("Messages needing audio playback:", audioMessages);
     }
   }, [conversation, isSpeaking]);
 
@@ -921,14 +950,17 @@ export default function Home() {
                             <p className="text-white">{message.content}</p>
                             
                             {index === lastAudioMessageIdRef.current && (
-                              <AudioPlayer 
-                                text={message.summarizedContent || message.content}
-                                messageId={index}
-                                autoPlay={true}
-                                hideControls={true}
-                                onPlaybackStart={handleAudioPlaybackStarted}
-                                onPlaybackEnd={handleAudioPlaybackEnded}
-                              />
+                              <>
+                                <div className="text-xs text-blue-300 mb-1">Playing interviewer audio...</div>
+                                <AudioPlayer 
+                                  text={message.summarizedContent || message.content}
+                                  messageId={index}
+                                  autoPlay={true}
+                                  hideControls={true}
+                                  onPlaybackStart={handleAudioPlaybackStarted}
+                                  onPlaybackEnd={handleAudioPlaybackEnded}
+                                />
+                              </>
                             )}
                           </div>
                         </div>
@@ -994,14 +1026,17 @@ export default function Home() {
                             )}
                             
                             {index === lastAudioMessageIdRef.current && (
-                              <AudioPlayer 
-                                text={message.summarizedContent || message.content}
-                                messageId={index}
-                                autoPlay={true}
-                                hideControls={true}
-                                onPlaybackStart={handleAudioPlaybackStarted}
-                                onPlaybackEnd={handleAudioPlaybackEnded}
-                              />
+                              <>
+                                <div className="text-xs text-indigo-300 mt-3 mb-1">Playing feedback audio...</div>
+                                <AudioPlayer 
+                                  text={message.summarizedContent || message.feedback.feedback}
+                                  messageId={index}
+                                  autoPlay={true}
+                                  hideControls={true}
+                                  onPlaybackStart={handleAudioPlaybackStarted}
+                                  onPlaybackEnd={handleAudioPlaybackEnded}
+                                />
+                              </>
                             )}
                           </div>
                         </div>
