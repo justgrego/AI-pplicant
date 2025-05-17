@@ -10,6 +10,7 @@ interface AudioPlayerProps {
   hideControls?: boolean;
   onPlaybackStart?: () => void;
   onPlaybackEnd?: () => void;
+  isFeedback?: boolean; // Flag to indicate this is feedback audio
 }
 
 // Keep track of which messages have been played globally
@@ -22,7 +23,8 @@ export default function AudioPlayer({
   autoPlay = false, 
   hideControls = false,
   onPlaybackStart,
-  onPlaybackEnd
+  onPlaybackEnd,
+  isFeedback = false // New prop to handle feedback specially
 }: AudioPlayerProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,10 +34,10 @@ export default function AudioPlayer({
   // Check if already played
   const alreadyPlayed = playedMessages.has(messageId);
 
-  // Play audio once function
+  // Enhanced audio play function with special handling for feedback
   async function playAudioOnce() {
-    // Add more logging for debugging
-    console.log(`AudioPlayer: playAudioOnce called for message ${messageId}. Already played: ${alreadyPlayed}, isLoading: ${isLoading}`);
+    // Add more detailed logging for debugging
+    console.log(`AudioPlayer: playAudioOnce called for message ${messageId}. Already played: ${alreadyPlayed}, isLoading: ${isLoading}, isFeedback: ${isFeedback}`);
 
     // Don't play if already played or already loading
     if (alreadyPlayed || isLoading) {
@@ -50,13 +52,25 @@ export default function AudioPlayer({
       // Mark as played immediately to prevent double execution
       playedMessages.add(messageId);
       
-      console.log("AudioPlayer: Fetching audio for text:", text.substring(0, 50) + "...");
+      // Process text to ensure reasonable length for audio synthesis
+      let processedText = text;
+      if (processedText.length > 300 && isFeedback) {
+        console.log("AudioPlayer: Feedback text is long, truncating for better playback");
+        // For feedback, try to keep just the most relevant parts
+        processedText = processedText.split('.').slice(0, 3).join('.') + '.';
+      }
       
-      // Get the audio from the API
+      console.log("AudioPlayer: Fetching audio for text:", processedText.substring(0, 50) + "...");
+      
+      // Get the audio from the API with priority flag for feedback
       const response = await fetch('/api/voice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voiceId }),
+        body: JSON.stringify({ 
+          text: processedText, 
+          voiceId,
+          priority: isFeedback // Signal priority for feedback
+        }),
       });
 
       if (!response.ok) {
@@ -109,14 +123,14 @@ export default function AudioPlayer({
         // Set event handlers directly on the element
         if (onPlaybackStart) {
           audioRef.current.onplay = () => {
-            console.log(`AudioPlayer: Audio playback started for message ${messageId}`);
+            console.log(`AudioPlayer: Audio playback started for message ${messageId}, isFeedback: ${isFeedback}`);
             onPlaybackStart();
           };
         }
         
         if (onPlaybackEnd) {
           audioRef.current.onended = () => {
-            console.log(`AudioPlayer: Audio playback ended for message ${messageId}`);
+            console.log(`AudioPlayer: Audio playback ended for message ${messageId}, isFeedback: ${isFeedback}`);
             // Clean up URL when done
             URL.revokeObjectURL(audioUrl);
             onPlaybackEnd();
@@ -133,7 +147,7 @@ export default function AudioPlayer({
         
         // Play audio with Safari-specific handling
         try {
-          console.log(`AudioPlayer: Attempting to play audio for message ${messageId}`);
+          console.log(`AudioPlayer: Attempting to play audio for message ${messageId}, isFeedback: ${isFeedback}`);
           
           // Check if this is Safari
           const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -143,20 +157,63 @@ export default function AudioPlayer({
             // For Safari, ensure the audio is fully loaded before attempting to play
             audioRef.current.load();
             
-            // Use a promise to wait for canplaythrough event
+            // Special handling for feedback in Safari - add extra load event
+            if (isFeedback) {
+              audioRef.current.volume = 1.0; // Ensure max volume for feedback
+              console.log("AudioPlayer: Using enhanced Safari handling for feedback audio");
+            }
+            
+            // Use a promise to wait for canplaythrough event with a timeout
             const playPromise = new Promise((resolve, reject) => {
+              let hasStartedPlaying = false;
+              
+              // Event listener for canplaythrough
               const canPlayHandler = () => {
+                if (hasStartedPlaying) return;
+                hasStartedPlaying = true;
                 audioRef.current?.removeEventListener('canplaythrough', canPlayHandler);
-                audioRef.current?.play().then(resolve).catch(reject);
+                
+                console.log(`AudioPlayer: canplaythrough event triggered for message ${messageId}`);
+                
+                // Double check we can actually play the audio
+                if (audioRef.current) {
+                  // For Safari, try playing multiple times if needed
+                  const attemptPlay = (attempt = 1) => {
+                    console.log(`AudioPlayer: Attempt ${attempt} to play audio for message ${messageId}`);
+                    audioRef.current?.play()
+                      .then(resolve)
+                      .catch(err => {
+                        console.error(`AudioPlayer: Error on attempt ${attempt}:`, err);
+                        if (attempt < 3) {
+                          // Try again after a short delay with user interaction simulation
+                          setTimeout(() => attemptPlay(attempt + 1), 200);
+                        } else {
+                          reject(err);
+                        }
+                      });
+                  };
+                  
+                  attemptPlay();
+                } else {
+                  reject(new Error("Audio element no longer available"));
+                }
               };
               
+              // Add the event listener for canplaythrough
               audioRef.current?.addEventListener('canplaythrough', canPlayHandler, { once: true });
               
               // Set a timeout in case the event doesn't fire
               setTimeout(() => {
-                audioRef.current?.removeEventListener('canplaythrough', canPlayHandler);
-                audioRef.current?.play().then(resolve).catch(reject);
-              }, 1000);
+                if (!hasStartedPlaying) {
+                  console.log(`AudioPlayer: canplaythrough timeout for message ${messageId}, trying to play anyway`);
+                  audioRef.current?.removeEventListener('canplaythrough', canPlayHandler);
+                  if (audioRef.current) {
+                    audioRef.current.play().then(resolve).catch(reject);
+                  } else {
+                    reject(new Error("Audio element no longer available"));
+                  }
+                }
+              }, 2000); // Longer timeout for Safari
             });
             
             await playPromise;
@@ -184,16 +241,16 @@ export default function AudioPlayer({
   // Auto-play on mount if needed
   useEffect(() => {
     // Add more logging for debugging
-    console.log(`AudioPlayer: Component mounted for message ${messageId}, autoPlay=${autoPlay}, alreadyPlayed=${alreadyPlayed}`);
+    console.log(`AudioPlayer: Component mounted for message ${messageId}, autoPlay=${autoPlay}, alreadyPlayed=${alreadyPlayed}, isFeedback=${isFeedback}`);
     
     // Only play if not already played and autoPlay is true
     if (autoPlay && !alreadyPlayed) {
       console.log(`AudioPlayer: Will auto-play audio for message ${messageId} in 100ms`);
       // Use a small timeout to ensure the component is fully mounted
       setTimeout(() => {
-        console.log(`AudioPlayer: Triggering auto-play for message ${messageId}`);
+        console.log(`AudioPlayer: Triggering auto-play for message ${messageId}, isFeedback: ${isFeedback}`);
         playAudioOnce();
-      }, 100);
+      }, isFeedback ? 50 : 100); // Faster trigger for feedback to ensure it plays
     }
     
     // Store current audio ref for cleanup

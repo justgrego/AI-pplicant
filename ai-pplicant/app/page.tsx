@@ -231,6 +231,18 @@ export default function Home() {
     }
   };
 
+  // Update how summarized feedback is created to be more concise
+  // Create a shorter, more concise version of the feedback for speech
+  const createSummarizedFeedback = (feedback: FeedbackResponse) => {
+    const score = feedback.score;
+    const strength = feedback.strengths[0] || '';
+    const improvement = feedback.improvements[0] || '';
+    
+    // Keep it very concise for better audio playback
+    return `${score >= 4 ? 'Good answer! ' : 'Thanks. '}${strength.split('.')[0]}. ${improvement.split('.')[0]}. Score: ${score}/5.`;
+  };
+
+  // Update handleSubmitAnswer to use the concise feedback summary and directly play audio
   const handleSubmitAnswer = async () => {
     if (!userAnswer.trim()) {
       setError('Please provide an answer before submitting');
@@ -306,15 +318,15 @@ export default function Home() {
       const feedback = await feedbackResponse.json();
       console.log("Received feedback response:", feedback);
 
-      // Create a summarized version of the feedback for speech
-      const summarizedFeedback = `${feedback.score >= 4 ? 'Good answer! ' : 'Thanks for your answer. '} 
-        ${feedback.strengths[0]}. However, ${feedback.improvements[0]}. 
-        Your score is ${feedback.score} out of 5. ${feedback.follow_up || ''}`;
+      // Create a concise summarized version of the feedback for speech
+      const summarizedFeedback = createSummarizedFeedback(feedback);
+      console.log("Summarized feedback for audio:", summarizedFeedback);
 
-      // Add feedback to conversation with deduplication
+      // Create a unique ID for this feedback message
       const feedbackMessageId = `feedback-${Date.now()}`;
-      const feedbackTimestamp = Date.now() + 100; // Add small offset to ensure proper ordering
+      const feedbackTimestamp = Date.now() + 100; // Add small offset for ordering
       
+      // Add feedback to conversation
       addMessageToConversation({
         role: 'feedback',
         content: feedback.feedback,
@@ -325,16 +337,21 @@ export default function Home() {
         timestamp: feedbackTimestamp
       });
       
-      // Automatically queue feedback audio to play after a short delay
+      console.log("Added feedback with ID:", feedbackMessageId);
+      
+      // *** Force audio playback for feedback immediately ***
+      // Wait a moment for the conversation state to update
       setTimeout(() => {
-        if (lastAudioMessageIdRef.current === null) {
-          console.log("Auto-queuing feedback audio message with ID:", feedbackMessageId);
-          
-          // Find the index of the feedback message
-          const feedbackIndex = conversation.findIndex(msg => msg.messageId === feedbackMessageId);
-          if (feedbackIndex !== -1) {
-            lastAudioMessageIdRef.current = feedbackIndex;
-          }
+        // Find the index of the feedback message to play
+        const feedbackIndex = conversation.findIndex(msg => msg.messageId === feedbackMessageId);
+        if (feedbackIndex !== -1) {
+          console.log("Directly playing feedback audio at index:", feedbackIndex);
+          // Force playing this message directly
+          lastAudioMessageIdRef.current = feedbackIndex;
+          // Stop any current playback
+          setIsSpeaking(false);
+        } else {
+          console.warn("Could not find feedback message to play audio for:", feedbackMessageId);
         }
       }, 500);
       
@@ -440,6 +457,7 @@ export default function Home() {
     }
   };
 
+  // Also update handleVoiceInput with the same pattern for feedback audio
   const handleVoiceInput = (transcript: string) => {
     console.log("Received voice transcript:", transcript);
     
@@ -516,10 +534,9 @@ export default function Home() {
           const feedback = await feedbackResponse.json();
           console.log("Voice input: Received feedback response:", feedback);
 
-          // Create a summarized version of the feedback for speech
-          const summarizedFeedback = `${feedback.score >= 4 ? 'Good answer! ' : 'Thanks for your answer. '} 
-            ${feedback.strengths[0]}. However, ${feedback.improvements[0]}. 
-            Your score is ${feedback.score} out of 5. ${feedback.follow_up || ''}`;
+          // Create a more concise summarized version of the feedback for speech
+          const summarizedFeedback = createSummarizedFeedback(feedback);
+          console.log("Voice input: Summarized feedback for audio:", summarizedFeedback);
 
           // Add feedback to conversation with unique ID and timestamp
           const feedbackMessageId = `feedback-voice-${Date.now()}`;
@@ -537,15 +554,18 @@ export default function Home() {
           
           console.log("Voice input: Added feedback with ID:", feedbackMessageId);
           
-          // Automatically queue feedback audio to play
+          // *** Force feedback audio playback directly ***
           setTimeout(() => {
-            if (lastAudioMessageIdRef.current === null) {
-              // Find the index of the feedback message
-              const feedbackIndex = conversation.findIndex(msg => msg.messageId === feedbackMessageId);
-              if (feedbackIndex !== -1) {
-                console.log("Voice input: Auto-queuing feedback audio message:", feedbackIndex);
-                lastAudioMessageIdRef.current = feedbackIndex;
-              }
+            // Find the index of the feedback message to play
+            const feedbackIndex = conversation.findIndex(msg => msg.messageId === feedbackMessageId);
+            if (feedbackIndex !== -1) {
+              console.log("Voice input: Directly playing feedback audio at index:", feedbackIndex);
+              // Force playing this message directly
+              lastAudioMessageIdRef.current = feedbackIndex;
+              // Stop any current playback
+              setIsSpeaking(false);
+            } else {
+              console.warn("Voice input: Could not find feedback message to play audio for:", feedbackMessageId);
             }
           }, 500);
           
@@ -1174,6 +1194,7 @@ export default function Home() {
                                   hideControls={true}
                                   onPlaybackStart={handleAudioPlaybackStarted}
                                   onPlaybackEnd={handleAudioPlaybackEnded}
+                                  isFeedback={true}
                                 />
                               </>
                             )}

@@ -24,7 +24,7 @@ async function getMockAudioResponse() {
 
 export async function POST(request: NextRequest) {
   try {
-    const { text, voiceId } = await request.json();
+    const { text, voiceId, priority = false } = await request.json();
 
     if (!text) {
       console.error('Voice API: Text is required');
@@ -32,6 +32,11 @@ export async function POST(request: NextRequest) {
         { error: 'Text is required' },
         { status: 400 }
       );
+    }
+    
+    // Log whether this is a priority feedback request
+    if (priority) {
+      console.log('Voice API: Processing PRIORITY feedback audio request');
     }
 
     // Check if API key is missing
@@ -42,10 +47,18 @@ export async function POST(request: NextRequest) {
 
     // Use default voice if not provided
     const selectedVoiceId = voiceId || 'CYw3kZ02Hs0563khs1Fj'; // Default voice: Jessica
-    console.log(`Voice API: Using voice ID ${selectedVoiceId} for text: "${text.substring(0, 50)}..."`);
+    console.log(`Voice API: Using voice ID ${selectedVoiceId} for ${priority ? 'FEEDBACK' : 'regular'} text: "${text.substring(0, 50)}..."`);
+
+    // Optimize text for audio if it's a feedback message
+    let processedText = text;
+    if (priority && text.length > 150) {
+      // For feedback, ensure text isn't too long to avoid playback issues
+      processedText = text.split('.').filter((s: string) => s.trim().length > 0).slice(0, 3).join('.') + '.';
+      console.log(`Voice API: Shortened feedback text for better audio playback: "${processedText}"`);
+    }
 
     try {
-      // Direct fetch to ElevenLabs API
+      // Direct fetch to ElevenLabs API with optimized settings for feedback
       const response = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}`,
         {
@@ -56,11 +69,11 @@ export async function POST(request: NextRequest) {
             'xi-api-key': process.env.ELEVENLABS_API_KEY,
           },
           body: JSON.stringify({
-            text,
+            text: processedText,
             model_id: 'eleven_multilingual_v2',
             voice_settings: {
-              stability: 0.5,
-              similarity_boost: 0.75,
+              stability: priority ? 0.75 : 0.5, // Higher stability for feedback
+              similarity_boost: priority ? 0.8 : 0.75, // Better clarity for feedback
             },
           }),
         }
@@ -80,7 +93,7 @@ export async function POST(request: NextRequest) {
 
       // Get the audio data
       const audioArrayBuffer = await response.arrayBuffer();
-      console.log(`Voice API: Successfully generated audio (${audioArrayBuffer.byteLength} bytes)`);
+      console.log(`Voice API: Successfully generated ${priority ? 'FEEDBACK' : 'regular'} audio (${audioArrayBuffer.byteLength} bytes)`);
       
       // Return the audio data as a response with headers optimized for Safari
       return new NextResponse(audioArrayBuffer, {
@@ -92,7 +105,10 @@ export async function POST(request: NextRequest) {
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Range',
           'Accept-Ranges': 'bytes',
-          'Cache-Control': 'no-cache, no-store, must-revalidate'
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          // Add additional headers for Safari compatibility
+          'X-Content-Type-Options': 'nosniff',
+          'X-Audio-Type': priority ? 'feedback' : 'regular' // Custom header to mark feedback audio
         },
       });
     } catch (apiError) {
