@@ -49,6 +49,11 @@ export default function VoiceRecorder({
   // Initialize recognition as null
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   
+  // Add refs for MediaRecorder fallback
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const [useFallbackRecorder, setUseFallbackRecorder] = useState(false);
+  
   // Start speech recognition
   const startRecognition = () => {
     try {
@@ -63,7 +68,9 @@ export default function VoiceRecorder({
       
       if (!SpeechRecognition) {
         console.error("VoiceRecorder: SpeechRecognition not supported by browser");
-        setError("Speech recognition not supported by your browser");
+        setError("Speech recognition not supported by browser, using fallback recording");
+        setUseFallbackRecorder(true);
+        startMediaRecording();
         return;
       }
       
@@ -135,7 +142,88 @@ export default function VoiceRecorder({
       
     } catch (error) {
       console.error("VoiceRecorder: Failed to start recognition", error);
-      setError("Failed to start voice recording");
+      setError("Failed to start voice recording, trying fallback method");
+      setUseFallbackRecorder(true);
+      startMediaRecording();
+    }
+  };
+  
+  // Start media recording (fallback)
+  const startMediaRecording = async () => {
+    try {
+      console.log("VoiceRecorder: Starting media recording fallback");
+      
+      // Reset the audio chunks
+      audioChunksRef.current = [];
+      
+      // Request microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Create media recorder
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      
+      // Setup event handlers
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      
+      mediaRecorder.onstop = async () => {
+        console.log("VoiceRecorder: Media recording stopped");
+        
+        if (audioChunksRef.current.length > 0) {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          
+          // Create FormData to send to the server
+          const formData = new FormData();
+          formData.append('audio', audioBlob, 'recording.webm');
+          
+          try {
+            console.log("VoiceRecorder: Sending audio to server for transcription");
+            
+            // Send recording to server for transcription via OpenAI
+            const response = await fetch('/api/transcribe', {
+              method: 'POST',
+              body: formData,
+            });
+            
+            if (!response.ok) {
+              throw new Error('Failed to transcribe audio');
+            }
+            
+            const data = await response.json();
+            console.log("VoiceRecorder: Received transcription:", data.transcript);
+            
+            // Set transcript and call callback
+            if (data.transcript) {
+              setTranscript(data.transcript);
+              onTranscription(data.transcript);
+            }
+          } catch (error) {
+            console.error("VoiceRecorder: Transcription error:", error);
+            setError("Failed to transcribe audio");
+          }
+        }
+        
+        // Release all media streams
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+        
+        setRecording(false);
+      };
+      
+      // Start recording
+      mediaRecorder.start();
+      setRecording(true);
+      console.log("VoiceRecorder: Media recording started");
+      
+    } catch (error) {
+      console.error("VoiceRecorder: Failed to start media recording:", error);
+      setError("Failed to access microphone or start recording");
+      setRecording(false);
     }
   };
   
@@ -155,6 +243,16 @@ export default function VoiceRecorder({
       recognitionRef.current = null;
     }
     
+    // Also stop media recorder if it's active
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      try {
+        mediaRecorderRef.current.stop();
+        console.log("VoiceRecorder: Media recorder stopped");
+      } catch (error) {
+        console.error("VoiceRecorder: Error stopping media recorder", error);
+      }
+    }
+    
     setRecording(false);
   };
   
@@ -163,7 +261,11 @@ export default function VoiceRecorder({
     console.log("VoiceRecorder: isListening changed to", isListening);
     
     if (isListening) {
-      startRecognition();
+      if (useFallbackRecorder) {
+        startMediaRecording();
+      } else {
+        startRecognition();
+      }
     } else {
       stopRecognition();
     }
@@ -172,7 +274,7 @@ export default function VoiceRecorder({
     return () => {
       stopRecognition();
     };
-  }, [isListening]); // startRecognition and stopRecognition don't depend on props so they don't need to be in deps array
+  }, [isListening, useFallbackRecorder]); 
   
   // Simple UI
   return (

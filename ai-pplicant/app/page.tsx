@@ -254,6 +254,11 @@ export default function Home() {
     if (messageToPlay !== -1) {
       console.log("Playing audio for message:", messageToPlay);
       lastAudioMessageIdRef.current = messageToPlay;
+      
+      // This is the fix - we're setting the reference but not actually playing audio
+      // Let's force an update to the conversation to make sure the AudioPlayer component re-renders
+      const updatedConversation = [...conversation];
+      setConversation(updatedConversation);
     }
     
     // Scroll to bottom
