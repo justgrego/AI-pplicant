@@ -45,6 +45,7 @@ export default function Home() {
   const [listeningForVoice, setListeningForVoice] = useState(false);
   const [interviewMode, setInterviewMode] = useState<InterviewMode>('technical');
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [micPermissionState, setMicPermissionState] = useState<'granted' | 'denied' | 'prompt' | 'unknown'>('unknown');
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const lastAudioMessageIdRef = useRef<number | null>(null);
 
@@ -233,6 +234,38 @@ export default function Home() {
     }
   };
 
+  // Request microphone permission before starting recording
+  const handleVoiceButtonClick = async () => {
+    if (listeningForVoice) {
+      // Stop listening
+      setListeningForVoice(false);
+      return;
+    }
+
+    try {
+      // Check if we already have permission
+      const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      setMicPermissionState(permissionStatus.state);
+      
+      // If permission is denied, show a message
+      if (permissionStatus.state === 'denied') {
+        setError('Microphone permission is required for voice recording. Please enable it in your browser settings.');
+        return;
+      }
+      
+      // Try to access the microphone to trigger the permission prompt
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // If we reach here, permission was granted
+      setMicPermissionState('granted');
+      setListeningForVoice(true);
+      setError(null);
+    } catch (err) {
+      console.error('Error accessing microphone:', err);
+      setError('Failed to access microphone. Please check your browser permissions.');
+    }
+  };
+
   const handleVoiceInput = (transcript: string) => {
     console.log("Received transcript:", transcript);
     if (transcript.trim()) {
@@ -286,6 +319,28 @@ export default function Home() {
   const handleAudioPlaybackEnded = () => {
     setIsSpeaking(false);
   };
+
+  // Use effect to check microphone permission on component mount
+  useEffect(() => {
+    // Function to check microphone permission status
+    const checkMicrophonePermission = async () => {
+      try {
+        const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        setMicPermissionState(permissionStatus.state);
+        
+        // Listen for permission changes
+        permissionStatus.onchange = () => {
+          setMicPermissionState(permissionStatus.state);
+        };
+      } catch (err) {
+        console.error('Error checking microphone permission:', err);
+        // If can't check permission status, we'll assume unknown
+        setMicPermissionState('unknown');
+      }
+    };
+    
+    checkMicrophonePermission();
+  }, []);
 
   return (
     <main className="flex min-h-screen flex-col bg-gradient-to-b from-gray-900 to-gray-950 text-white">
@@ -526,12 +581,15 @@ export default function Home() {
                 
                 {/* Voice control */}
                 <button 
-                  onClick={() => setListeningForVoice(!listeningForVoice)}
+                  onClick={handleVoiceButtonClick}
                   className={`w-full flex items-center justify-center py-3 px-4 rounded-lg transition duration-150 ease-in-out shadow-lg ${
                     listeningForVoice 
                       ? 'bg-red-600 hover:bg-red-700 animate-pulse' 
-                      : 'bg-blue-600 hover:bg-blue-700'
+                      : micPermissionState === 'denied'
+                        ? 'bg-gray-600'
+                        : 'bg-blue-600 hover:bg-blue-700'
                   }`}
+                  disabled={micPermissionState === 'denied'}
                 >
                   {listeningForVoice ? (
                     <>
@@ -539,6 +597,17 @@ export default function Home() {
                         <rect x="6" y="6" width="12" height="12" rx="2" ry="2" />
                       </svg>
                       Stop Recording
+                    </>
+                  ) : micPermissionState === 'denied' ? (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                        <line x1="1" y1="1" x2="23" y2="23" />
+                        <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+                        <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23" />
+                        <line x1="12" x2="12" y1="19" y2="23" />
+                        <line x1="8" x2="16" y1="23" y2="23" />
+                      </svg>
+                      Microphone Access Denied
                     </>
                   ) : (
                     <>
