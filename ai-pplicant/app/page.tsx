@@ -13,6 +13,7 @@ export default function Home() {
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
   const [currentAnswer, setCurrentAnswer] = useState('');
   const [showApiKeyInfo, setShowApiKeyInfo] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const handleStartInterview = async () => {
     if (!jobDescription || !company) {
@@ -21,6 +22,7 @@ export default function Home() {
     }
     
     setIsLoading(true);
+    setError(null);
     try {
       const response = await fetch('/api/interview', {
         method: 'POST',
@@ -34,7 +36,7 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to start interview');
+        throw new Error(`Server error: ${response.status}`);
       }
 
       const data = await response.json();
@@ -43,11 +45,11 @@ export default function Home() {
         setQuestions(data.interviewQuestions);
         setStarted(true);
       } else {
-        alert('Failed to generate interview questions. Please try again.');
+        setError('Failed to generate interview questions. Please try again.');
       }
     } catch (error) {
       console.error('Error starting interview:', error);
-      alert('Failed to start interview. Please try again.');
+      setError('Failed to start interview. Please check your connection and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -81,12 +83,12 @@ export default function Home() {
     <main className="flex min-h-screen flex-col items-center justify-between p-24">
       <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm">
         {showApiKeyInfo && (
-          <div className="mb-8 p-4 bg-blue-100 text-blue-800 rounded-md">
+          <div className="mb-8 p-4 bg-blue-100/20 text-blue-200 rounded-md">
             <div className="flex justify-between items-center">
               <h3 className="font-bold">Environment Setup</h3>
               <button 
                 onClick={() => setShowApiKeyInfo(false)}
-                className="text-blue-600 hover:text-blue-800"
+                className="text-blue-300 hover:text-blue-500"
               >
                 ✕
               </button>
@@ -100,6 +102,12 @@ export default function Home() {
         
         <h1 className="text-4xl font-bold text-center mb-8">AI-pplicant</h1>
         <h2 className="text-2xl text-center mb-12">Voice Interview Simulator</h2>
+        
+        {error && (
+          <div className="mb-4 p-3 bg-red-100/20 text-red-200 rounded-md">
+            <p>{error}</p>
+          </div>
+        )}
         
         {!started ? (
           <div className="bg-white/10 p-8 rounded-lg shadow-lg w-full max-w-2xl mx-auto">
@@ -133,7 +141,7 @@ export default function Home() {
             
             <button
               onClick={handleStartInterview}
-              disabled={isLoading}
+              disabled={isLoading || !company || !jobDescription}
               className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md transition duration-150 ease-in-out disabled:opacity-50"
             >
               {isLoading ? 'Preparing Interview...' : 'Start Interview'}
@@ -170,7 +178,7 @@ export default function Home() {
               
               <div className="flex justify-between">
                 <button 
-                  className="py-2 px-4 bg-gray-600 hover:bg-gray-700 text-white font-medium rounded-md"
+                  className="py-2 px-4 bg-gray-600 hover:bg-gray-700 text-white font-medium rounded-md disabled:opacity-50"
                   onClick={handlePrevQuestion}
                   disabled={currentQuestionIndex === 0}
                 >

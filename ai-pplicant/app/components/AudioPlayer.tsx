@@ -15,6 +15,11 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false }: AudioPl
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const playAudio = useCallback(async () => {
+    if (!text) {
+      setError('No text provided for audio conversion');
+      return;
+    }
+
     try {
       setIsLoading(true);
       setError(null);
@@ -41,9 +46,11 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false }: AudioPl
       if (contentType && contentType.includes('application/json')) {
         // This is a mock response for development without API keys
         const jsonData = await response.json();
-        setMockMessage(jsonData.message || 'Audio not available in development mode');
-        setIsLoading(false);
-        return;
+        if (jsonData.mockData) {
+          setMockMessage(jsonData.message || 'Using mock audio in development mode');
+          setIsLoading(false);
+          return;
+        }
       }
 
       // It's a real audio response
@@ -55,7 +62,10 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false }: AudioPl
       // Update the audio element with the new source
       if (audioRef.current) {
         audioRef.current.src = audioUrl;
-        audioRef.current.play();
+        audioRef.current.play().catch(playError => {
+          console.error('Error playing audio:', playError);
+          setError('Browser blocked audio playback. Please interact with the page first.');
+        });
       }
 
       setIsLoading(false);
@@ -77,9 +87,8 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false }: AudioPl
       <audio ref={audioRef} controls className={mockMessage ? "hidden" : "w-full mt-2"} />
       
       {mockMessage && (
-        <div className="p-3 bg-yellow-100 text-yellow-800 rounded-md mt-2 mb-2">
+        <div className="p-3 bg-yellow-100/20 text-yellow-200 rounded-md mt-2 mb-2">
           <p>{mockMessage}</p>
-          <p className="text-xs mt-1">Using your deployed version with Vercel API keys will enable real audio.</p>
         </div>
       )}
 
