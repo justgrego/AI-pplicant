@@ -484,24 +484,32 @@ export default function VoiceRecorder({
       recognition.onresult = (event: SpeechRecognitionEvent) => {
         console.log("VoiceRecorder: Got speech result");
         
-        // Get latest result
-        const result = event.results[event.results.length - 1];
-        const currentTranscript = result[0].transcript;
-        console.log("VoiceRecorder: Transcript:", currentTranscript);
+        // Accumulate all speech segments for long responses
+        let fullTranscript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          fullTranscript += event.results[i][0].transcript;
+        }
         
-        // Update transcript
-        setTranscript(currentTranscript);
+        console.log("VoiceRecorder: Full transcript:", fullTranscript);
+        
+        // Update transcript with the complete text
+        setTranscript(fullTranscript);
       };
       
       // Handle end event
       recognition.onend = () => {
         console.log("VoiceRecorder: Recognition ended, transcript:", transcript);
         
-        // Submit the transcript if available
+        // Submit the transcript if available, but add a small delay
+        // to ensure we have the latest transcript from onresult
         if (transcript) {
-          onTranscription(transcript);
-          // Clear transcript after sending to prevent duplicate submissions
-          setTranscript('');
+          // Short timeout to ensure the latest transcript has been set
+          setTimeout(() => {
+            console.log("VoiceRecorder: Submitting final transcript after delay:", transcript);
+            onTranscription(transcript);
+            // Clear transcript after sending to prevent duplicate submissions
+            setTranscript('');
+          }, 100);
         }
         
         // If still listening but not recording, restart recognition

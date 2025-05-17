@@ -135,8 +135,7 @@ export default function Home() {
     }
   }, [conversation, isSpeaking]);
 
-  // Create natural, concise, company-specific feedback
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Create brutally honest but human feedback specifically for the current question
   const createAudioFriendlyFeedback = (feedback: FeedbackResponse, questionText?: string, userAnswer?: string) => {
     // Extract feedback elements
     const strengths = feedback.strengths || [];
@@ -145,58 +144,81 @@ export default function Home() {
     // Get the original feedback text for reference
     const originalFeedback = feedback.feedback;
     
-    // Create a direct, natural feedback message
+    // Create a direct, brutally honest feedback message
     let message = '';
     
-    // For context, reference the company culture
-    const companyReference = company ? `At ${company}, ` : '';
+    // Get the actual question being answered - this is critical to fix the feedback context issue
+    const questionContext = questionText || 
+                           (currentQuestionIndex < questions.length ? 
+                            questions[currentQuestionIndex].question : 
+                            "this question");
     
-    // Start with a strength (if available)
-    if (strengths.length > 0) {
-      message = `Good point about ${strengths[0].toLowerCase().replace(/^you /i, '')}. `;
+    // For context, reference the company expectations
+    const companyReference = company ? `${company}` : 'Companies like this';
+    
+    // Start with a brief question reference to fix the context issue
+    message = `About "${questionContext.substring(0, 40)}${questionContext.length > 40 ? '...' : ''}": `;
+    
+    // Add a brutally honest assessment based on feedback score
+    if (feedback.score <= 2) {
+      // Poor response
+      message += `That wouldn't cut it in a real interview. `;
+    } else if (feedback.score <= 3) {
+      // Mediocre response
+      message += `That's barely acceptable. `;
     }
     
-    // Add the primary improvement advice - this is the most important part
+    // Acknowledge strength but be direct
+    if (strengths.length > 0) {
+      // Make the strength acknowledgment more human but direct
+      message += `${strengths[0]}. `;
+    }
+    
+    // Add direct, no-nonsense improvement advice
     if (improvements.length > 0) {
-      // Make improvement advice more direct and actionable
+      // Make improvement advice more brutally honest but helpful
       const improvement = improvements[0]
         .replace(/^you should /i, '')
         .replace(/^consider /i, '')
         .replace(/^try to /i, '');
       
-      // Add company context to the improvement when possible
-      message += `${companyReference}I'd recommend you ${improvement}. `;
+      // Add blunt but useful advice
+      message += `${companyReference} expects you to ${improvement}. `;
       
-      // Add a second improvement if available, but keep it brief
+      // Add a second improvement if available - be direct
       if (improvements.length > 1) {
         const secondImprovement = improvements[1]
           .replace(/^you should /i, '')
           .replace(/^consider /i, '')
           .replace(/^try to /i, '');
         
-        message += `Also, ${secondImprovement}. `;
+        message += `Frankly, you also need to ${secondImprovement}. `;
       }
     }
     
-    // Add specific type-based advice
+    // Add specific type-based advice with a direct tone
     if (interviewMode === 'behavioral') {
       // For behavioral questions, add STAR method reminder if needed
       if (originalFeedback.toLowerCase().includes('star') && 
           !message.toLowerCase().includes('star method')) {
-        message += 'Structure your answer with the STAR method: situation, task, action, results. ';
+        message += 'You must use the STAR method: situation, task, action, results. No excuses. ';
       }
     } else if (interviewMode === 'technical') {
       // For technical questions, add specific technical advice
       if (!message.toLowerCase().includes('complexity') && 
           !message.toLowerCase().includes('algorithm') &&
           originalFeedback.toLowerCase().includes('complexity')) {
-        message += 'Remember to discuss time and space complexity. ';
+        message += 'Any decent engineer discusses time and space complexity. ';
       }
     }
     
-    // Keep the feedback focused on improvement rather than scoring
-    if (feedback.score && feedback.score < 3 && !message.includes('practice')) {
-      message += 'This will need more practice. ';
+    // Add human touches based on the answer if available
+    if (userAnswer) {
+      if (userAnswer.length < 100 && feedback.score < 4) {
+        message += "Your answer was too brief. Expand your thoughts. ";
+      } else if (userAnswer.length > 500 && !message.includes('concise')) {
+        message += "You're being too verbose. Be more concise. ";
+      }
     }
     
     // Format the message for better speech synthesis
