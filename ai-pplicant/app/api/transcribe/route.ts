@@ -3,12 +3,7 @@ import { OpenAI } from 'openai';
 
 // Configure route handler for large files
 export const config = {
-  api: {
-    // Disables body parsing, we'll handle raw body ourselves
-    bodyParser: false,
-  },
-  // Increase the response limit for audio files
-  maxDuration: 60,
+  maxDuration: 60, // Allows up to 60 seconds of processing time
 };
 
 export async function POST(request: NextRequest) {
