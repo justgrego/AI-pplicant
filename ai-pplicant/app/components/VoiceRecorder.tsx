@@ -91,7 +91,7 @@ export default function VoiceRecorder({
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
-      } catch (_) {
+      } catch (_error) {
         console.error("Error stopping speech recognition:");
       }
     }
@@ -208,7 +208,7 @@ export default function VoiceRecorder({
             // If recognition ended but we're still supposed to be recording, restart it
             try {
               recognition.start();
-            } catch (_) {
+            } catch (_error) {
               console.error("Error restarting speech recognition:");
             }
           }
@@ -268,7 +268,7 @@ export default function VoiceRecorder({
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
-        } catch {
+        } catch (_error) {
           // Ignore errors during cleanup
         }
       }
