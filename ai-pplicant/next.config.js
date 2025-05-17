@@ -5,14 +5,17 @@ const nextConfig = {
     serverComponentsExternalPackages: ['openai'],
   },
   images: {
-    domains: ['avatars.githubusercontent.com'],
-  },
-  // Increase the maximum request size for audio files
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-    responseLimit: '10mb',
+    domains: [
+      'avatars.githubusercontent.com',
+      'www.animatedimages.org',
+      'via.placeholder.com'
+    ],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**',
+      },
+    ],
   },
 };
 

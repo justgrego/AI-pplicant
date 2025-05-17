@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Configure the API route for longer processing time
+export const config = {
+  maxDuration: 30, // 30 seconds timeout
+};
+
 // Create a mock audio response for development or when API key is missing
 async function getMockAudioResponse() {
   return NextResponse.json({
@@ -73,14 +78,4 @@ export async function POST(request: NextRequest) {
     console.error('Voice conversion error:', error);
     return getMockAudioResponse();
   }
-}
-
-// Configure the API route for handling larger audio files
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-    responseLimit: '10mb',
-  },
-}; 
+} 

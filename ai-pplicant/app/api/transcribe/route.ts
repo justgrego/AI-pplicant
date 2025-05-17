@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
 
+// Configure route handler for large files
 export const config = {
   api: {
+    // Disables body parsing, we'll handle raw body ourselves
     bodyParser: false,
-    responseLimit: '10mb',
   },
+  // Increase the response limit for audio files
+  maxDuration: 60,
 };
 
 export async function POST(request: NextRequest) {
