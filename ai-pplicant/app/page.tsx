@@ -323,13 +323,18 @@ export default function Home() {
                   <div className="absolute inset-0 flex items-center justify-center">
                     {/* Replace this with an actual animated interviewer image */}
                     <div className="relative w-full h-full">
-                      <img 
+                      <Image 
                         src="https://www.animatedimages.org/data/media/1660/animated-interview-image-0011.gif" 
                         alt="AI Interviewer"
-                        className="object-cover w-full h-full rounded-lg"
+                        className="object-cover rounded-lg"
+                        fill
+                        sizes="(max-width: 768px) 100vw, 33vw"
                         onError={(e) => {
                           // Fallback if image fails to load
-                          (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400x400?text=AI+Interviewer';
+                          const target = e.target as HTMLImageElement;
+                          if (target.src !== 'https://via.placeholder.com/400x400?text=AI+Interviewer') {
+                            target.src = 'https://via.placeholder.com/400x400?text=AI+Interviewer';
+                          }
                         }}
                       />
                     </div>
