@@ -34,6 +34,43 @@ interface ConversationMessage {
 // Interview mode type
 type InterviewMode = 'technical' | 'behavioral';
 
+// Add a utility function at the top level to force prime audio context specifically for Safari
+const primeSafariAudioContext = () => {
+  try {
+    // Check if this is Safari
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    if (isSafari) {
+      console.log("Priming Safari audio context");
+      const AudioContextClass = window.AudioContext || 
+        ((window as {webkitAudioContext?: typeof AudioContext}).webkitAudioContext);
+      
+      if (AudioContextClass) {
+        const audioCtx = new AudioContextClass();
+        // Create and play a short silent sound
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = 0.01; // Very low volume
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start(0);
+        oscillator.stop(0.1); // Very short duration
+        
+        // Resume audio context if it's suspended
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        
+        console.log("Safari audio context primed successfully");
+        return audioCtx;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.error('Failed to prime Safari audio context:', err);
+    return null;
+  }
+};
+
 export default function Home() {
   const [jobDescription, setJobDescription] = useState('');
   const [company, setCompany] = useState('');
@@ -235,15 +272,35 @@ export default function Home() {
   // Create a shorter, more concise version of the feedback for speech
   const createSummarizedFeedback = (feedback: FeedbackResponse) => {
     const score = feedback.score;
-    const strength = feedback.strengths[0] || '';
-    const improvement = feedback.improvements[0] || '';
     
-    // Keep it very concise for better audio playback
-    return `${score >= 4 ? 'Good answer! ' : 'Thanks. '}${strength.split('.')[0]}. ${improvement.split('.')[0]}. Score: ${score}/5.`;
+    // For Safari, make feedback very brief and direct
+    const strength = feedback.strengths[0] ? feedback.strengths[0].split('.')[0] : '';
+    const improvement = feedback.improvements[0] ? feedback.improvements[0].split('.')[0] : '';
+    
+    // Ultra-concise format for better playback
+    return `Score ${score}/5. Strength: ${strength}. Improvement: ${improvement}.`;
   };
 
-  // Update handleSubmitAnswer to use the concise feedback summary and directly play audio
+  // Create a separate function to directly play feedback audio
+  const playFeedbackAudio = (index: number, feedbackText: string) => {
+    // First prime Safari audio context 
+    primeSafariAudioContext();
+    
+    // Set audio message index with small delay
+    setTimeout(() => {
+      console.log(`Directly playing feedback audio at index ${index} with text: ${feedbackText.substring(0, 30)}...`);
+      // Ensure we're not speaking first
+      setIsSpeaking(false);
+      // Set the audio message to play
+      lastAudioMessageIdRef.current = index;
+    }, 300);
+  };
+
+  // Update handleSubmitAnswer to use better feedback audio handling
   const handleSubmitAnswer = async () => {
+    // First prime Safari audio
+    primeSafariAudioContext();
+    
     if (!userAnswer.trim()) {
       setError('Please provide an answer before submitting');
       return;
@@ -339,17 +396,14 @@ export default function Home() {
       
       console.log("Added feedback with ID:", feedbackMessageId);
       
-      // *** Force audio playback for feedback immediately ***
-      // Wait a moment for the conversation state to update
+      // Wait for conversation state to update before finding the index
       setTimeout(() => {
         // Find the index of the feedback message to play
         const feedbackIndex = conversation.findIndex(msg => msg.messageId === feedbackMessageId);
         if (feedbackIndex !== -1) {
-          console.log("Directly playing feedback audio at index:", feedbackIndex);
-          // Force playing this message directly
-          lastAudioMessageIdRef.current = feedbackIndex;
-          // Stop any current playback
-          setIsSpeaking(false);
+          // On Safari, immediately play the feedback audio with special handling
+          console.log(`Found feedback message at index ${feedbackIndex}, preparing to play audio`);
+          playFeedbackAudio(feedbackIndex, summarizedFeedback);
         } else {
           console.warn("Could not find feedback message to play audio for:", feedbackMessageId);
         }
@@ -364,7 +418,7 @@ export default function Home() {
         setTimeout(() => {
           // Add the dynamic follow-up question to conversation with proper sequencing
           const followUpMessageId = `interviewer-follow-up-${Date.now()}`;
-          const followUpTimestamp = Date.now() + 1000; // Ensure it appears after feedback
+          const followUpTimestamp = Date.now() + 2000; // Ensure it appears after feedback
           
           addMessageToConversation({
             role: 'interviewer',
@@ -381,14 +435,14 @@ export default function Home() {
           });
           
           console.log("Added follow-up question with ID:", followUpMessageId);
-        }, 1500); // Longer delay for better conversation flow
+        }, 3000); // Extended delay for better conversation flow in Safari
       } else if (currentQuestionIndex >= questions.length - 1) {
         // Interview completed
         setTimeout(() => {
           const concludingMessage = "That concludes our interview. Thank you for your thoughtful responses. I hope this practice helps you in your actual interview with " + company + ".";
           
           const concludingMessageId = `interviewer-conclusion-${Date.now()}`;
-          const concludingTimestamp = Date.now() + 1500; // Ensure it appears after other messages
+          const concludingTimestamp = Date.now() + 3000; // Ensure it appears after other messages
           
           addMessageToConversation({
             role: 'interviewer',
@@ -400,7 +454,7 @@ export default function Home() {
           });
           
           console.log("Added concluding message with ID:", concludingMessageId);
-        }, 2000);
+        }, 4000); // Extended delay for Safari
       }
       
       // Answer has already been cleared at the beginning of this function
@@ -459,6 +513,9 @@ export default function Home() {
 
   // Also update handleVoiceInput with the same pattern for feedback audio
   const handleVoiceInput = (transcript: string) => {
+    // Prime Safari audio context first
+    primeSafariAudioContext();
+    
     console.log("Received voice transcript:", transcript);
     
     // Stop recording immediately to prevent double submissions
@@ -554,16 +611,13 @@ export default function Home() {
           
           console.log("Voice input: Added feedback with ID:", feedbackMessageId);
           
-          // *** Force feedback audio playback directly ***
+          // Special Safari handling for feedback audio
           setTimeout(() => {
             // Find the index of the feedback message to play
             const feedbackIndex = conversation.findIndex(msg => msg.messageId === feedbackMessageId);
             if (feedbackIndex !== -1) {
-              console.log("Voice input: Directly playing feedback audio at index:", feedbackIndex);
-              // Force playing this message directly
-              lastAudioMessageIdRef.current = feedbackIndex;
-              // Stop any current playback
-              setIsSpeaking(false);
+              console.log(`Voice input: Found feedback at index ${feedbackIndex}, preparing to play audio`);
+              playFeedbackAudio(feedbackIndex, summarizedFeedback);
             } else {
               console.warn("Voice input: Could not find feedback message to play audio for:", feedbackMessageId);
             }

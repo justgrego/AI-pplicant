@@ -16,6 +16,13 @@ interface AudioPlayerProps {
 // Keep track of which messages have been played globally
 const playedMessages = new Set<number>();
 
+// Global audio context for Safari
+let globalAudioContext: AudioContext | null = null;
+
+// Utility function to check if running in Safari
+const isSafari = typeof navigator !== 'undefined' ? 
+  /^((?!chrome|android).)*safari/i.test(navigator.userAgent) : false;
+
 export default function AudioPlayer({ 
   text, 
   messageId,
@@ -33,11 +40,49 @@ export default function AudioPlayer({
   
   // Check if already played
   const alreadyPlayed = playedMessages.has(messageId);
+  
+  // Initialize or retrieve global audio context for Safari
+  const initSafariAudioContext = () => {
+    if (isSafari && !globalAudioContext) {
+      try {
+        const AudioContextClass = window.AudioContext || 
+          ((window as {webkitAudioContext?: typeof AudioContext}).webkitAudioContext);
+        
+        if (AudioContextClass) {
+          globalAudioContext = new AudioContextClass();
+          // Create and play a silent sound to unlock audio
+          const oscillator = globalAudioContext.createOscillator();
+          const gainNode = globalAudioContext.createGain();
+          gainNode.gain.value = 0.01; // Very low volume
+          oscillator.connect(gainNode);
+          gainNode.connect(globalAudioContext.destination);
+          oscillator.start(0);
+          oscillator.stop(0.1);
+          
+          console.log("AudioPlayer: Initialized global Safari audio context");
+          
+          // Resume the context if it's suspended
+          if (globalAudioContext.state === 'suspended') {
+            globalAudioContext.resume().then(() => {
+              console.log("AudioPlayer: Global audio context resumed");
+            });
+          }
+        }
+      } catch (err) {
+        console.error("AudioPlayer: Failed to initialize Safari audio context:", err);
+      }
+    }
+  };
 
   // Enhanced audio play function with special handling for feedback
   async function playAudioOnce() {
+    // For Safari, initialize global audio context
+    if (isSafari) {
+      initSafariAudioContext();
+    }
+    
     // Add more detailed logging for debugging
-    console.log(`AudioPlayer: playAudioOnce called for message ${messageId}. Already played: ${alreadyPlayed}, isLoading: ${isLoading}, isFeedback: ${isFeedback}`);
+    console.log(`AudioPlayer: playAudioOnce called for message ${messageId}. Already played: ${alreadyPlayed}, isLoading: ${isLoading}, isFeedback: ${isFeedback}, isSafari: ${isSafari}`);
 
     // Don't play if already played or already loading
     if (alreadyPlayed || isLoading) {
@@ -65,11 +110,16 @@ export default function AudioPlayer({
       // Get the audio from the API with priority flag for feedback
       const response = await fetch('/api/voice', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Safari-Audio': isSafari ? 'true' : 'false',
+          'X-Is-Feedback': isFeedback ? 'true' : 'false'
+        },
         body: JSON.stringify({ 
           text: processedText, 
           voiceId,
-          priority: isFeedback // Signal priority for feedback
+          priority: isFeedback, // Signal priority for feedback
+          safari: isSafari // Let API know this is Safari
         }),
       });
 
@@ -118,19 +168,29 @@ export default function AudioPlayer({
         // Set up audio element - for Safari, ensure we reset any previous state
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
+        
+        // For Safari feedback, set properties before setting source
+        if (isSafari && isFeedback) {
+          audioRef.current.volume = 1.0;
+          audioRef.current.autoplay = true;
+          audioRef.current.preload = "auto";
+          console.log("AudioPlayer: Set Safari-specific properties for feedback audio");
+        }
+        
+        // Set the source
         audioRef.current.src = audioUrl;
         
         // Set event handlers directly on the element
         if (onPlaybackStart) {
           audioRef.current.onplay = () => {
-            console.log(`AudioPlayer: Audio playback started for message ${messageId}, isFeedback: ${isFeedback}`);
+            console.log(`AudioPlayer: Audio playback started for message ${messageId}, isFeedback: ${isFeedback}, isSafari: ${isSafari}`);
             onPlaybackStart();
           };
         }
         
         if (onPlaybackEnd) {
           audioRef.current.onended = () => {
-            console.log(`AudioPlayer: Audio playback ended for message ${messageId}, isFeedback: ${isFeedback}`);
+            console.log(`AudioPlayer: Audio playback ended for message ${messageId}, isFeedback: ${isFeedback}, isSafari: ${isSafari}`);
             // Clean up URL when done
             URL.revokeObjectURL(audioUrl);
             onPlaybackEnd();
@@ -147,10 +207,8 @@ export default function AudioPlayer({
         
         // Play audio with Safari-specific handling
         try {
-          console.log(`AudioPlayer: Attempting to play audio for message ${messageId}, isFeedback: ${isFeedback}`);
+          console.log(`AudioPlayer: Attempting to play audio for message ${messageId}, isFeedback: ${isFeedback}, isSafari: ${isSafari}`);
           
-          // Check if this is Safari
-          const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
           if (isSafari) {
             console.log("AudioPlayer: Safari browser detected, using special handling");
             
@@ -161,6 +219,19 @@ export default function AudioPlayer({
             if (isFeedback) {
               audioRef.current.volume = 1.0; // Ensure max volume for feedback
               console.log("AudioPlayer: Using enhanced Safari handling for feedback audio");
+              
+              // Add direct media session activation for Safari feedback
+              if (navigator.mediaSession) {
+                try {
+                  navigator.mediaSession.setActionHandler('play', () => {
+                    audioRef.current?.play().catch(err => {
+                      console.error("Safari Media Session play error:", err);
+                    });
+                  });
+                } catch (err) {
+                  console.log("Safari doesn't support media session API fully:", err);
+                }
+              }
             }
             
             // Use a promise to wait for canplaythrough event with a timeout
@@ -179,18 +250,54 @@ export default function AudioPlayer({
                 if (audioRef.current) {
                   // For Safari, try playing multiple times if needed
                   const attemptPlay = (attempt = 1) => {
-                    console.log(`AudioPlayer: Attempt ${attempt} to play audio for message ${messageId}`);
-                    audioRef.current?.play()
-                      .then(resolve)
-                      .catch(err => {
-                        console.error(`AudioPlayer: Error on attempt ${attempt}:`, err);
-                        if (attempt < 3) {
-                          // Try again after a short delay with user interaction simulation
-                          setTimeout(() => attemptPlay(attempt + 1), 200);
-                        } else {
-                          reject(err);
+                    // For feedback messages, be even more aggressive
+                    if (isFeedback && globalAudioContext && globalAudioContext.state === 'suspended') {
+                      console.log("AudioPlayer: Resuming global audio context for feedback");
+                      globalAudioContext.resume();
+                    }
+                    
+                    console.log(`AudioPlayer: Attempt ${attempt} to play audio for message ${messageId} (${isFeedback ? 'feedback' : 'regular'})`);
+                    
+                    // For Safari feedback, use a specific play approach
+                    if (isFeedback && attempt === 1) {
+                      // Create a user gesture simulation for Safari
+                      const simulateUserGesture = () => {
+                        if (audioRef.current) {
+                          const playPromise = audioRef.current.play();
+                          if (playPromise !== undefined) {
+                            playPromise
+                              .then(() => {
+                                console.log("AudioPlayer: Safari feedback play successful after gesture simulation");
+                                resolve(true);
+                              })
+                              .catch(err => {
+                                console.error("AudioPlayer: Safari feedback play failed after gesture simulation:", err);
+                                if (attempt < 3) {
+                                  setTimeout(() => attemptPlay(attempt + 1), 200);
+                                } else {
+                                  reject(err);
+                                }
+                              });
+                          }
                         }
-                      });
+                      };
+                      
+                      // Execute with a small delay to let Safari prepare
+                      setTimeout(simulateUserGesture, 50);
+                    } else {
+                      // Regular approach for subsequent attempts or non-feedback
+                      audioRef.current?.play()
+                        .then(resolve)
+                        .catch(err => {
+                          console.error(`AudioPlayer: Error on attempt ${attempt}:`, err);
+                          if (attempt < 3) {
+                            // Try again after a short delay with escalating intervals
+                            setTimeout(() => attemptPlay(attempt + 1), 200 * attempt);
+                          } else {
+                            reject(err);
+                          }
+                        });
+                    }
                   };
                   
                   attemptPlay();
@@ -208,12 +315,42 @@ export default function AudioPlayer({
                   console.log(`AudioPlayer: canplaythrough timeout for message ${messageId}, trying to play anyway`);
                   audioRef.current?.removeEventListener('canplaythrough', canPlayHandler);
                   if (audioRef.current) {
-                    audioRef.current.play().then(resolve).catch(reject);
+                    // For feedback in Safari, be even more aggressive in timeout case
+                    if (isFeedback && isSafari) {
+                      console.log("AudioPlayer: Aggressive feedback audio recovery attempt for Safari");
+                      // Try to force unlock audio context
+                      if (globalAudioContext && globalAudioContext.state === 'suspended') {
+                        globalAudioContext.resume();
+                      }
+                      
+                      // Try multiple play attempts with escalating delays
+                      const forcedPlay = (attempt = 1) => {
+                        setTimeout(() => {
+                          if (audioRef.current) {
+                            console.log(`AudioPlayer: Forced play attempt ${attempt} for Safari feedback`);
+                            audioRef.current.play()
+                              .then(resolve)
+                              .catch(err => {
+                                console.error(`AudioPlayer: Forced play attempt ${attempt} failed:`, err);
+                                if (attempt < 5) {
+                                  forcedPlay(attempt + 1);
+                                } else {
+                                  reject(err);
+                                }
+                              });
+                          }
+                        }, attempt * 100); // Escalating delays
+                      };
+                      
+                      forcedPlay();
+                    } else {
+                      audioRef.current.play().then(resolve).catch(reject);
+                    }
                   } else {
                     reject(new Error("Audio element no longer available"));
                   }
                 }
-              }, 2000); // Longer timeout for Safari
+              }, isFeedback ? 1000 : 2000); // Shorter timeout for feedback
             });
             
             await playPromise;
@@ -224,6 +361,25 @@ export default function AudioPlayer({
         } catch (playError) {
           console.error('AudioPlayer: Error playing audio:', playError);
           console.error('AudioPlayer: Browser:', navigator.userAgent);
+          
+          // Special recovery attempt for feedback in Safari
+          if (isFeedback && isSafari) {
+            console.log("AudioPlayer: Attempting Safari feedback recovery after error");
+            try {
+              // Wait a moment and try one more approach
+              setTimeout(() => {
+                if (audioRef.current) {
+                  console.log("AudioPlayer: Last-ditch Safari feedback recovery attempt");
+                  audioRef.current.play().catch(e => {
+                    console.error("AudioPlayer: Recovery attempt failed:", e);
+                  });
+                }
+              }, 500);
+            } catch (recoveryError) {
+              console.error("AudioPlayer: Recovery attempt error:", recoveryError);
+            }
+          }
+          
           setError('Failed to play audio. Please try again.');
           if (onPlaybackEnd) onPlaybackEnd();
         }
@@ -240,8 +396,13 @@ export default function AudioPlayer({
 
   // Auto-play on mount if needed
   useEffect(() => {
+    // For Safari, initialize audio context early
+    if (isSafari) {
+      initSafariAudioContext();
+    }
+    
     // Add more logging for debugging
-    console.log(`AudioPlayer: Component mounted for message ${messageId}, autoPlay=${autoPlay}, alreadyPlayed=${alreadyPlayed}, isFeedback=${isFeedback}`);
+    console.log(`AudioPlayer: Component mounted for message ${messageId}, autoPlay=${autoPlay}, alreadyPlayed=${alreadyPlayed}, isFeedback=${isFeedback}, isSafari=${isSafari}`);
     
     // Only play if not already played and autoPlay is true
     if (autoPlay && !alreadyPlayed) {
@@ -250,7 +411,7 @@ export default function AudioPlayer({
       setTimeout(() => {
         console.log(`AudioPlayer: Triggering auto-play for message ${messageId}, isFeedback: ${isFeedback}`);
         playAudioOnce();
-      }, isFeedback ? 50 : 100); // Faster trigger for feedback to ensure it plays
+      }, isFeedback && isSafari ? 10 : 100); // Much faster trigger for feedback in Safari
     }
     
     // Store current audio ref for cleanup
@@ -304,7 +465,13 @@ export default function AudioPlayer({
       )}
 
       <button
-        onClick={playAudioOnce}
+        onClick={() => {
+          // For Safari, initialize audio context on button click
+          if (isSafari) {
+            initSafariAudioContext();
+          }
+          playAudioOnce();
+        }}
         disabled={isLoading || alreadyPlayed}
         className="inline-flex items-center justify-center rounded-md text-sm font-medium focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50 h-10 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white"
       >

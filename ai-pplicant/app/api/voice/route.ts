@@ -24,7 +24,15 @@ async function getMockAudioResponse() {
 
 export async function POST(request: NextRequest) {
   try {
-    const { text, voiceId, priority = false } = await request.json();
+    const { text, voiceId, priority = false, safari = false } = await request.json();
+    
+    // Get Safari information from headers as well
+    const safariHeader = request.headers.get('x-safari-audio') === 'true';
+    const isFeedbackHeader = request.headers.get('x-is-feedback') === 'true';
+    
+    // Combine info sources
+    const isSafari = safari || safariHeader;
+    const isFeedback = priority || isFeedbackHeader;
 
     if (!text) {
       console.error('Voice API: Text is required');
@@ -34,9 +42,13 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Log whether this is a priority feedback request
-    if (priority) {
+    // Log special handling cases
+    if (isFeedback) {
       console.log('Voice API: Processing PRIORITY feedback audio request');
+    }
+    
+    if (isSafari) {
+      console.log('Voice API: Processing request for Safari browser');
     }
 
     // Check if API key is missing
@@ -47,14 +59,22 @@ export async function POST(request: NextRequest) {
 
     // Use default voice if not provided
     const selectedVoiceId = voiceId || 'CYw3kZ02Hs0563khs1Fj'; // Default voice: Jessica
-    console.log(`Voice API: Using voice ID ${selectedVoiceId} for ${priority ? 'FEEDBACK' : 'regular'} text: "${text.substring(0, 50)}..."`);
+    console.log(`Voice API: Using voice ID ${selectedVoiceId} for ${isFeedback ? 'FEEDBACK' : 'regular'} text: "${text.substring(0, 50)}..."`);
 
     // Optimize text for audio if it's a feedback message
     let processedText = text;
-    if (priority && text.length > 150) {
-      // For feedback, ensure text isn't too long to avoid playback issues
-      processedText = text.split('.').filter((s: string) => s.trim().length > 0).slice(0, 3).join('.') + '.';
-      console.log(`Voice API: Shortened feedback text for better audio playback: "${processedText}"`);
+    
+    // More aggressive text processing for Safari feedback
+    if (isFeedback) {
+      if (isSafari && text.length > 100) {
+        // For Safari feedback, keep it very short and simple
+        processedText = text.split('.').filter((s: string) => s.trim().length > 0).slice(0, 2).join('.') + '.';
+        console.log(`Voice API: Shortened Safari feedback text for better playback: "${processedText}"`);
+      } else if (text.length > 150) {
+        // For feedback in other browsers, still shorten but less aggressively
+        processedText = text.split('.').filter((s: string) => s.trim().length > 0).slice(0, 3).join('.') + '.';
+        console.log(`Voice API: Shortened feedback text for better playback: "${processedText}"`);
+      }
     }
 
     try {
@@ -72,8 +92,8 @@ export async function POST(request: NextRequest) {
             text: processedText,
             model_id: 'eleven_multilingual_v2',
             voice_settings: {
-              stability: priority ? 0.75 : 0.5, // Higher stability for feedback
-              similarity_boost: priority ? 0.8 : 0.75, // Better clarity for feedback
+              stability: isFeedback ? 0.80 : 0.5, // Higher stability for feedback
+              similarity_boost: isFeedback ? 0.85 : 0.75, // Better clarity for feedback
             },
           }),
         }
@@ -93,22 +113,40 @@ export async function POST(request: NextRequest) {
 
       // Get the audio data
       const audioArrayBuffer = await response.arrayBuffer();
-      console.log(`Voice API: Successfully generated ${priority ? 'FEEDBACK' : 'regular'} audio (${audioArrayBuffer.byteLength} bytes)`);
+      console.log(`Voice API: Successfully generated ${isFeedback ? 'FEEDBACK' : 'regular'} audio (${audioArrayBuffer.byteLength} bytes)`);
       
-      // Return the audio data as a response with headers optimized for Safari
+      // Safari-specific headers if needed
+      const safariSpecificHeaders: Record<string, string> = {};
+      if (isSafari) {
+        Object.assign(safariSpecificHeaders, {
+          'X-Content-Type-Options': 'nosniff',
+          'X-Audio-Type': isFeedback ? 'feedback' : 'regular',
+          'Content-Disposition': 'inline; filename="audio.mp3"',
+          'X-Safari-Compatible': 'true'
+        });
+      }
+      
+      // Feedback-specific headers
+      const feedbackSpecificHeaders: Record<string, string> = {};
+      if (isFeedback) {
+        Object.assign(feedbackSpecificHeaders, {
+          'X-Feedback-Audio': 'true',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        });
+      }
+      
+      // Return the audio data as a response with headers optimized for the browser
       return new NextResponse(audioArrayBuffer, {
         headers: {
           'Content-Type': 'audio/mpeg',
           'Content-Length': audioArrayBuffer.byteLength.toString(),
-          'Content-Disposition': 'inline',
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Range',
+          'Access-Control-Allow-Headers': 'Content-Type, Range, X-Safari-Audio, X-Is-Feedback',
           'Accept-Ranges': 'bytes',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          // Add additional headers for Safari compatibility
-          'X-Content-Type-Options': 'nosniff',
-          'X-Audio-Type': priority ? 'feedback' : 'regular' // Custom header to mark feedback audio
+          ...safariSpecificHeaders,
+          ...feedbackSpecificHeaders
         },
       });
     } catch (apiError) {
