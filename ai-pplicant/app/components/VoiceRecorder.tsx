@@ -80,25 +80,7 @@ export default function VoiceRecorder({
     }
   }, [onTranscription]);
 
-  // Auto-stop recording after silence (only if enabled)
-  const resetSilenceTimer = useCallback(() => {
-    if (!autoStopAfterSilence) return; // Skip if auto-stop is disabled
-    
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-    }
-    
-    // Stop recording after 2 seconds of silence
-    silenceTimerRef.current = setTimeout(() => {
-      if (recording && transcript) {
-        console.log("Detected silence, stopping recording");
-        setIsSilent(true);
-        stopRecording();
-      }
-    }, 2000);
-  }, [recording, transcript, autoStopAfterSilence]); // added dependency
-
-  // Stop recording and process audio
+  // Stop recording and process audio - define this before it's used in resetSilenceTimer
   const stopRecording = useCallback(() => {
     // Clear silence timer
     if (silenceTimerRef.current) {
@@ -109,8 +91,8 @@ export default function VoiceRecorder({
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
-      } catch (e) {
-        console.error("Error stopping speech recognition:", e);
+      } catch (_) {
+        console.error("Error stopping speech recognition:");
       }
     }
     
@@ -131,6 +113,24 @@ export default function VoiceRecorder({
       }
     }
   }, [recording, onTranscription, transcript]);
+
+  // Auto-stop recording after silence (only if enabled)
+  const resetSilenceTimer = useCallback(() => {
+    if (!autoStopAfterSilence) return; // Skip if auto-stop is disabled
+    
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+    }
+    
+    // Stop recording after 2 seconds of silence
+    silenceTimerRef.current = setTimeout(() => {
+      if (recording && transcript) {
+        console.log("Detected silence, stopping recording");
+        setIsSilent(true);
+        stopRecording();
+      }
+    }, 2000);
+  }, [recording, transcript, autoStopAfterSilence, stopRecording]);
 
   // Request microphone permission
   useEffect(() => {
@@ -208,8 +208,8 @@ export default function VoiceRecorder({
             // If recognition ended but we're still supposed to be recording, restart it
             try {
               recognition.start();
-            } catch (e) {
-              console.error("Error restarting speech recognition:", e);
+            } catch (_) {
+              console.error("Error restarting speech recognition:");
             }
           }
         };
@@ -268,7 +268,7 @@ export default function VoiceRecorder({
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
-        } catch (e) {
+        } catch {
           // Ignore errors during cleanup
         }
       }
