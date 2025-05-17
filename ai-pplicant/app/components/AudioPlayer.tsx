@@ -6,9 +6,10 @@ interface AudioPlayerProps {
   text: string;
   voiceId?: string;
   autoPlay?: boolean;
+  hideControls?: boolean;
 }
 
-export default function AudioPlayer({ text, voiceId, autoPlay = false }: AudioPlayerProps) {
+export default function AudioPlayer({ text, voiceId, autoPlay = false, hideControls = false }: AudioPlayerProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mockMessage, setMockMessage] = useState<string | null>(null);
@@ -81,6 +82,15 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false }: AudioPl
       playAudio();
     }
   }, [text, autoPlay, playAudio]);
+
+  if (hideControls) {
+    return (
+      <div className="hidden">
+        <audio ref={audioRef} />
+        {error && <p className="text-red-500 mt-2">{error}</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="mt-2">
