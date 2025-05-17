@@ -102,6 +102,7 @@ export default function Home() {
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const lastAudioMessageIdRef = useRef<number | null>(null);
   const [processingFeedback, setProcessingFeedback] = useState(false);
+  const totalQuestions = 10; // Fixed number of questions for the progress bar
 
   // Handle changes to the conversation array and trigger audio playback for the newest messages
   useEffect(() => {
@@ -134,25 +135,34 @@ export default function Home() {
     }
   }, [conversation, isSpeaking]);
 
-  // Create a more focused feedback summarizer specifically for audio playback
+  // Modify the createAudioFriendlyFeedback function to be more conversational
   const createAudioFriendlyFeedback = (feedback: FeedbackResponse) => {
     const score = feedback.score;
     
-    // For Safari audio playback, create an ultra-concise version
-    // Extract just the core message from the first strength and first improvement
+    // Extract core messages but more conversationally
     const extractCore = (text: string) => {
       if (!text) return '';
-      // Remove any "You" or other common prefixes
       return text.replace(/^(you |your |i liked how you |it was good that you |)/i, '')
-        .split('.')[0] // Take only the first sentence
+        .split('.')[0]
         .trim();
     };
     
     const strength = extractCore(feedback.strengths[0] || '');
     const improvement = extractCore(feedback.improvements[0] || '');
     
-    // Create a very brief, direct message that's ideal for audio
-    return `Score ${score} out of 5. Strength: ${strength}. Improvement: ${improvement}.`;
+    // Create a conversational but concise message
+    let message = '';
+    
+    // Different templates based on score
+    if (score >= 4) {
+      message = `That was a good response! I really liked how ${strength}. One small tip though - try to ${improvement}. Your answer scores a ${score} out of 5.`;
+    } else if (score >= 3) {
+      message = `That's a solid answer. I appreciated that ${strength}. To improve, I'd suggest you ${improvement}. Overall, that's a ${score} out of 5.`;
+    } else {
+      message = `Thanks for your answer. One good point was that ${strength}. To make it stronger, focus on ${improvement}. Your current score is ${score} out of 5, but I know you can improve!`;
+    }
+    
+    return message;
   };
 
   // Completely revised message deduplication system
@@ -301,7 +311,7 @@ export default function Home() {
         
         // Also try playing a silent audio element
         const silentAudio = new Audio();
-        silentAudio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABIADAwMDAwMDAwMDAwMDAwMDAwMDAwMDV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV6urq6urq6urq6urq6urq6urq6urq6v////////////////////////////////8AAAAATGF2YzU4LjU0AAAAAAAAAAAAAAAAJAAAAAAAAAAAASDs90hvAAAAAAAAAAAAAAAAAAAA//MUZAAAAAGkAAAAAAAAA0gAAAAATEFN//MUZAMAAAGkAAAAAAAAA0gAAAAARTMu//MUZAYAAAGkAAAAAAAAA0gAAAAAOTku//MUZAkAAAGkAAAAAAAAA0gAAAAANVVV";
+        silentAudio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABIADAwMDAwMDAwMDAwMDAwMDAwMDAwMDV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV6urq6urq6urq6urq6urq6urq6v////////////////////////////////8AAAAATGF2YzU4LjU0AAAAAAAAAAAAAAAAJAAAAAAAAAAAASDs90hvAAAAAAAAAAAAAAAAAAAA//MUZAAAAAGkAAAAAAAAA0gAAAAATEFN//MUZAMAAAGkAAAAAAAAA0gAAAAARTMu//MUZAYAAAGkAAAAAAAAA0gAAAAAOTku//MUZAkAAAGkAAAAAAAAA0gAAAAANVVV";
         silentAudio.load();
         try {
           silentAudio.play().catch(e => console.log("Silent audio play attempt:", e));
@@ -530,9 +540,7 @@ export default function Home() {
       const feedback = await feedbackResponse.json();
       console.log("Received feedback response:", feedback);
 
-      // Create two versions of the feedback:
-      // 1. Full version for display
-      // 2. Ultra-concise version for audio playback in Safari
+      // Create conversational feedback for display and audio
       const displayFeedback = feedback.feedback;
       const audioFeedback = createAudioFriendlyFeedback(feedback);
       
@@ -546,7 +554,7 @@ export default function Home() {
         role: 'feedback',
         content: displayFeedback,
         feedback: feedback,
-        summarizedContent: audioFeedback, // Use the audio-friendly version
+        summarizedContent: audioFeedback, // Use the conversational version
         needsAudioPlay: true,
         messageId: feedbackMessageId,
         timestamp: feedbackTimestamp
@@ -565,54 +573,52 @@ export default function Home() {
           // Safari audio takes roughly (text length * 80ms) to play
           const estimatedAudioDuration = Math.max(2000, audioFeedback.length * 80);
           
+          // ALWAYS add a follow-up question after feedback
           setTimeout(() => {
-            // Now add the follow-up question if available
+            // Get or create a follow-up question
+            let followUpQuestion = '';
+            let followUpCategory = '';
+            
+            // First try to use the API-provided follow-up
             if (feedback.follow_up_question) {
-              // Increment question counter
-              setCurrentQuestionIndex(prevIndex => prevIndex + 1);
-              
-              // Add the follow-up question
-              const followUpMessageId = `interviewer-follow-up-for-${feedbackMessageId}-${Date.now()}`;
-              const followUpTimestamp = feedbackTimestamp + estimatedAudioDuration + 1000;
-              
-              addMessageToConversation({
-                role: 'interviewer',
-                content: feedback.follow_up_question,
-                question: {
-                  question: feedback.follow_up_question,
-                  category: feedback.follow_up_category || currentQuestion?.category || "Follow-up",
-                  difficulty: currentQuestion?.difficulty || "Medium"
-                },
-                summarizedContent: feedback.follow_up_question,
-                needsAudioPlay: true,
-                messageId: followUpMessageId,
-                timestamp: followUpTimestamp
-              });
-              
-              console.log("Added follow-up question:", followUpMessageId);
-            } else if (currentQuestionIndex >= questions.length - 1) {
-              // Interview completed
-              const concludingMessage = "That concludes our interview. Thank you for your thoughtful responses. I hope this practice helps you in your actual interview with " + company + ".";
-              
-              const concludingMessageId = `interviewer-conclusion-${Date.now()}`;
-              const concludingTimestamp = feedbackTimestamp + estimatedAudioDuration + 1000;
-              
-              addMessageToConversation({
-                role: 'interviewer',
-                content: concludingMessage,
-                summarizedContent: "That's all for today. Thanks for participating in this interview simulation.",
-                needsAudioPlay: true,
-                messageId: concludingMessageId,
-                timestamp: concludingTimestamp
-              });
-              
-              console.log("Added concluding message:", concludingMessageId);
+              followUpQuestion = feedback.follow_up_question;
+              followUpCategory = feedback.follow_up_category || currentQuestion?.category || "Follow-up";
+              console.log("Using API-provided follow-up question");
+            } else {
+              // If API didn't provide a follow-up, create a generic one based on the current topic
+              followUpQuestion = `Let's continue. Could you elaborate more on ${
+                currentQuestion?.category?.toLowerCase() || "your experience"
+              } with specific examples?`;
+              followUpCategory = currentQuestion?.category || "Follow-up";
+              console.log("Created generic follow-up question");
             }
+            
+            // Increment question counter
+            setCurrentQuestionIndex(prevIndex => prevIndex + 1);
+            
+            // Add the follow-up question
+            const followUpMessageId = `interviewer-follow-up-for-${feedbackMessageId}-${Date.now()}`;
+            const followUpTimestamp = feedbackTimestamp + estimatedAudioDuration + 1000;
+            
+            addMessageToConversation({
+              role: 'interviewer',
+              content: followUpQuestion,
+              question: {
+                question: followUpQuestion,
+                category: followUpCategory,
+                difficulty: currentQuestion?.difficulty || "Medium"
+              },
+              summarizedContent: followUpQuestion,
+              needsAudioPlay: true,
+              messageId: followUpMessageId,
+              timestamp: followUpTimestamp
+            });
+            
+            console.log("Added follow-up question:", followUpMessageId);
             
             // Clear the processing flag
             setProcessingFeedback(false);
           }, estimatedAudioDuration);
-          
         } else {
           console.warn("Could not find feedback message to play audio");
           setProcessingFeedback(false); // Release the flag
@@ -762,7 +768,7 @@ export default function Home() {
           const feedback = await feedbackResponse.json();
           console.log("Voice input: Received feedback response");
 
-          // Create two versions of the feedback
+          // Create conversational feedback for display and audio
           const displayFeedback = feedback.feedback;
           const audioFeedback = createAudioFriendlyFeedback(feedback);
           
@@ -1209,12 +1215,12 @@ export default function Home() {
                 <div className="mb-4">
                   <div className="flex justify-between text-xs text-gray-400 mb-1">
                     <span>Progress</span>
-                    <span>{currentQuestionIndex + 1}/{questions.length} Questions</span>
+                    <span>{currentQuestionIndex + 1}/{totalQuestions} Questions</span>
                   </div>
                   <div className="w-full bg-gray-700 rounded-full h-2">
                     <div 
                       className="bg-blue-500 h-2 rounded-full" 
-                      style={{ width: `${((currentQuestionIndex) / (questions.length)) * 100}%` }}
+                      style={{ width: `${((currentQuestionIndex) / (totalQuestions)) * 100}%` }}
                     ></div>
                   </div>
                 </div>
