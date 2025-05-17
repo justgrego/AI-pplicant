@@ -12,6 +12,7 @@ export default function Home() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
   const [currentAnswer, setCurrentAnswer] = useState('');
+  const [showApiKeyInfo, setShowApiKeyInfo] = useState(true);
 
   const handleStartInterview = async () => {
     if (!jobDescription || !company) {
@@ -79,6 +80,24 @@ export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-between p-24">
       <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm">
+        {showApiKeyInfo && (
+          <div className="mb-8 p-4 bg-blue-100 text-blue-800 rounded-md">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold">Environment Setup</h3>
+              <button 
+                onClick={() => setShowApiKeyInfo(false)}
+                className="text-blue-600 hover:text-blue-800"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mt-2">
+              This application uses API keys stored in Vercel. For local development, you may encounter missing audio and use mock data. 
+              The deployed version will use the proper API keys from Vercel.
+            </p>
+          </div>
+        )}
+        
         <h1 className="text-4xl font-bold text-center mb-8">AI-pplicant</h1>
         <h2 className="text-2xl text-center mb-12">Voice Interview Simulator</h2>
         

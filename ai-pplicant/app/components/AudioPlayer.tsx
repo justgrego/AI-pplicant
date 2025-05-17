@@ -11,12 +11,14 @@ interface AudioPlayerProps {
 export default function AudioPlayer({ text, voiceId, autoPlay = false }: AudioPlayerProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mockMessage, setMockMessage] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const playAudio = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
+      setMockMessage(null);
 
       const response = await fetch('/api/voice', {
         method: 'POST',
@@ -33,7 +35,18 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false }: AudioPl
         throw new Error('Failed to generate audio');
       }
 
-      // Convert the response to a blob
+      // Check if response is JSON (mock response) or binary (audio)
+      const contentType = response.headers.get('content-type');
+      
+      if (contentType && contentType.includes('application/json')) {
+        // This is a mock response for development without API keys
+        const jsonData = await response.json();
+        setMockMessage(jsonData.message || 'Audio not available in development mode');
+        setIsLoading(false);
+        return;
+      }
+
+      // It's a real audio response
       const audioBlob = await response.blob();
       
       // Create a URL for the blob
@@ -61,7 +74,15 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false }: AudioPl
 
   return (
     <div className="mt-2">
-      <audio ref={audioRef} controls className="hidden" />
+      <audio ref={audioRef} controls className={mockMessage ? "hidden" : "w-full mt-2"} />
+      
+      {mockMessage && (
+        <div className="p-3 bg-yellow-100 text-yellow-800 rounded-md mt-2 mb-2">
+          <p>{mockMessage}</p>
+          <p className="text-xs mt-1">Using your deployed version with Vercel API keys will enable real audio.</p>
+        </div>
+      )}
+
       <button
         onClick={playAudio}
         disabled={isLoading || !text}

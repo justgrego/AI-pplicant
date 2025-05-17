@@ -1,0 +1,10 @@
+{
+  "buildCommand": "cd ai-pplicant && npm run build",
+  "installCommand": "cd ai-pplicant && npm install",
+  "outputDirectory": "ai-pplicant/.next",
+  "framework": "nextjs",
+  "env": {
+    "OPENAI_API_KEY": "@openai_api_key",
+    "ELEVENLABS_API_KEY": "@elevenlabs_api_key"
+  }
+} 
