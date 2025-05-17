@@ -34,9 +34,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if API key is missing (development mode without .env.local)
-    if (!process.env.ELEVENLABS_API_KEY || process.env.NODE_ENV === 'development') {
-      console.log('Voice API: Using mock voice response (API key missing or in development)');
+    // Check if API key is missing
+    if (!process.env.ELEVENLABS_API_KEY) {
+      console.log('Voice API: Using mock voice response (API key missing)');
       return getMockAudioResponse();
     }
 
