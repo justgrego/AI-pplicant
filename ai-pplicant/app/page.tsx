@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import AudioPlayer from './components/AudioPlayer';
+import VoiceRecorder from './components/VoiceRecorder';
 
 export default function Home() {
   const [jobDescription, setJobDescription] = useState('');
@@ -14,6 +15,9 @@ export default function Home() {
   const [currentAnswer, setCurrentAnswer] = useState('');
   const [showApiKeyInfo, setShowApiKeyInfo] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [listeningForVoice, setListeningForVoice] = useState(false);
+  const [interviewerResponse, setInterviewerResponse] = useState<string | null>(null);
+  const responseAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const handleStartInterview = async () => {
     if (!jobDescription || !company) {
@@ -76,6 +80,40 @@ export default function Home() {
     if (currentQuestionIndex > 0) {
       setCurrentQuestionIndex(currentQuestionIndex - 1);
       setCurrentAnswer(userAnswers[currentQuestionIndex - 1] || '');
+    }
+  };
+
+  const handleVoiceInput = (transcript: string) => {
+    setCurrentAnswer(transcript);
+    setListeningForVoice(false);
+    
+    // Generate a response from the interviewer about the answer
+    generateInterviewerResponse(transcript);
+  };
+
+  const generateInterviewerResponse = async (userAnswer: string) => {
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userAnswer,
+          question: questions[currentQuestionIndex],
+          company,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get interviewer response');
+      }
+
+      const data = await response.json();
+      setInterviewerResponse(data.response);
+    } catch (error) {
+      console.error('Error getting interviewer response:', error);
+      setInterviewerResponse("I understand. Let's continue with the interview.");
     }
   };
 
@@ -164,17 +202,44 @@ export default function Home() {
               </div>
               
               <div className="mb-6">
-                <label className="block text-sm font-medium mb-2">
+                <label className="block text-sm font-medium mb-2 flex justify-between items-center">
                   Your Answer:
+                  <button 
+                    onClick={() => setListeningForVoice(!listeningForVoice)}
+                    className="text-sm text-blue-400 hover:text-blue-300 flex items-center"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1">
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" x2="12" y1="19" y2="22" />
+                    </svg>
+                    {listeningForVoice ? 'Cancel Voice' : 'Use Voice'}
+                  </button>
                 </label>
-                <textarea
-                  value={currentAnswer}
-                  onChange={(e) => setCurrentAnswer(e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/5"
-                  rows={4}
-                  placeholder="Type your answer here..."
-                />
+                
+                {listeningForVoice ? (
+                  <div className="bg-gray-800/50 p-4 rounded-md flex flex-col items-center justify-center">
+                    <p className="mb-3 text-center">Speak your answer...</p>
+                    <VoiceRecorder onTranscription={handleVoiceInput} isListening={true} />
+                  </div>
+                ) : (
+                  <textarea
+                    value={currentAnswer}
+                    onChange={(e) => setCurrentAnswer(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/5"
+                    rows={4}
+                    placeholder="Type your answer here or use voice input..."
+                  />
+                )}
               </div>
+              
+              {interviewerResponse && (
+                <div className="mb-6 bg-indigo-900/30 p-4 rounded-md">
+                  <h4 className="text-sm font-medium mb-2 text-indigo-300">Interviewer Response:</h4>
+                  <p className="text-white">{interviewerResponse}</p>
+                  <AudioPlayer text={interviewerResponse} autoPlay={true} />
+                </div>
+              )}
               
               <div className="flex justify-between">
                 <button 
