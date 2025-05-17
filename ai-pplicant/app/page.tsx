@@ -88,7 +88,7 @@ export default function Home() {
   const [micPermissionState, setMicPermissionState] = useState<'granted' | 'denied' | 'prompt' | 'unknown'>('unknown');
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const lastAudioMessageIdRef = useRef<number | null>(null);
-  const [lastMessageId, setLastMessageId] = useState<string | null>(null);
+  const [processingFeedback, setProcessingFeedback] = useState(false);
 
   // Handle changes to the conversation array and trigger audio playback for the newest messages
   useEffect(() => {
@@ -121,7 +121,28 @@ export default function Home() {
     }
   }, [conversation, isSpeaking]);
 
-  // Helper function to safely add messages to conversation with deduplication
+  // Create a more focused feedback summarizer specifically for audio playback
+  const createAudioFriendlyFeedback = (feedback: FeedbackResponse) => {
+    const score = feedback.score;
+    
+    // For Safari audio playback, create an ultra-concise version
+    // Extract just the core message from the first strength and first improvement
+    const extractCore = (text: string) => {
+      if (!text) return '';
+      // Remove any "You" or other common prefixes
+      return text.replace(/^(you |your |i liked how you |it was good that you |)/i, '')
+        .split('.')[0] // Take only the first sentence
+        .trim();
+    };
+    
+    const strength = extractCore(feedback.strengths[0] || '');
+    const improvement = extractCore(feedback.improvements[0] || '');
+    
+    // Create a very brief, direct message that's ideal for audio
+    return `Score ${score} out of 5. Strength: ${strength}. Improvement: ${improvement}.`;
+  };
+
+  // Completely revised message deduplication system
   const addMessageToConversation = (message: ConversationMessage) => {
     // Generate a unique ID for the message if not provided
     const messageId = message.messageId || 
@@ -137,50 +158,124 @@ export default function Home() {
       timestamp
     };
     
-    // Check if we've already processed this exact message
-    if (lastMessageId === messageId) {
-      console.log(`Duplicate message detected and skipped: ${messageId}`);
+    // Check if we're trying to add another message while processing feedback
+    if (processingFeedback && (message.role === 'interviewer' || message.role === 'feedback')) {
+      console.log(`Delaying message while feedback is processing: ${messageId} (${message.role})`);
+      
+      // Delay this message until feedback processing is complete
+      setTimeout(() => {
+        console.log(`Retrying delayed message: ${messageId} (${message.role})`);
+        addMessageToConversation(completeMessage);
+      }, 3000);
+      
       return;
     }
     
-    // Add the message to conversation
+    // Add the message to conversation with proper sequence checks
     setConversation(prev => {
-      // Check for existing identical message to prevent duplicates
-      const messageExists = prev.some(
-        m => m.messageId === messageId || 
-           (m.role === message.role && 
-            m.content === message.content)
+      // 1. Check for exact duplicate messages
+      const exactDuplicate = prev.some(m => 
+        m.messageId === messageId || 
+        (m.role === message.role && m.content === message.content)
       );
       
-      if (messageExists) {
-        console.log(`Message already exists in conversation, skipping: ${messageId}`);
+      if (exactDuplicate) {
+        console.log(`Exact duplicate message rejected: ${messageId} (${message.role})`);
         return prev;
       }
       
-      // Add the new message
-      const newConversation = [...prev, completeMessage];
+      // 2. For interviewer messages (questions), check if we already have an active question
+      if (message.role === 'interviewer' && message.question) {
+        // Find the most recent candidate message
+        let lastCandidateIndex = -1;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (prev[i].role === 'candidate') {
+            lastCandidateIndex = i;
+            break;
+          }
+        }
+        
+        // Find the most recent interviewer message
+        let lastInterviewerIndex = -1;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (prev[i].role === 'interviewer' && prev[i].question) {
+            lastInterviewerIndex = i;
+            break;
+          }
+        }
+        
+        // If we have an interviewer question with no candidate response, reject this new question
+        if (lastInterviewerIndex > lastCandidateIndex) {
+          console.log(`Rejecting question - previous question not yet answered: ${messageId}`);
+          return prev;
+        }
+        
+        // If the last message is feedback, make sure this question comes after
+        if (prev.length > 0 && prev[prev.length-1].role === 'feedback') {
+          // Ensure this question comes after the feedback in sequence
+          const newTimestamp = Math.max(timestamp, (prev[prev.length-1].timestamp || 0) + 2000);
+          if (newTimestamp > timestamp) {
+            console.log(`Adjusting question timestamp to come after feedback: ${messageId}`);
+            completeMessage.timestamp = newTimestamp;
+          }
+        }
+      }
       
-      // Sort by timestamp to ensure proper ordering
-      return newConversation.sort((a, b) => 
-        (a.timestamp || 0) - (b.timestamp || 0)
+      // 3. For feedback messages, enforce one feedback per candidate response
+      if (message.role === 'feedback') {
+        // Find the most recent candidate message
+        let lastCandidateIndex = -1;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (prev[i].role === 'candidate') {
+            lastCandidateIndex = i;
+            break;
+          }
+        }
+        
+        if (lastCandidateIndex === -1) {
+          console.log(`Rejecting feedback - no candidate message found: ${messageId}`);
+          return prev;
+        }
+        
+        // Check if there's already feedback for this candidate message
+        let hasFeedback = false;
+        for (let i = lastCandidateIndex + 1; i < prev.length; i++) {
+          if (prev[i].role === 'feedback') {
+            hasFeedback = true;
+            break;
+          }
+        }
+        
+        if (hasFeedback) {
+          console.log(`Rejecting feedback - candidate already has feedback: ${messageId}`);
+          return prev;
+        }
+      }
+      
+      // Add the message and sort by timestamp
+      const newConversation = [...prev, completeMessage].sort(
+        (a, b) => (a.timestamp || 0) - (b.timestamp || 0)
       );
+      
+      console.log(`Added message to conversation: ${messageId} (${message.role})`);
+      return newConversation;
     });
-    
-    // Update the latest message ID
-    setLastMessageId(messageId);
   };
 
+  // Updated handleStartInterview function to ensure proper sequencing
   const handleStartInterview = async () => {
     if (!jobDescription || !company) {
       setError('Please enter both job description and company name');
       return;
     }
     
+    // Make sure no processing is happening
+    setProcessingFeedback(false);
+    
     setIsLoading(true);
     setError(null);
     setConversation([]);
     lastAudioMessageIdRef.current = null; // Reset any audio playback state
-    setLastMessageId(null); // Reset the last message ID tracker
     
     try {
       // Prime audio for Safari - creates a silent audio context on user interaction
@@ -226,25 +321,47 @@ export default function Home() {
         
         console.log("Starting interview with initial messages");
         
-        // First add just the welcome message with proper ID and timestamp
-        const welcomeMessageId = `interviewer-welcome-${Date.now()}`;
+        // Start the interview first - this ensures the UI is ready
+        setStarted(true);
+        
+        // Reset any processing flags
+        setProcessingFeedback(false);
+        
+        // Give a short delay to ensure the UI has updated
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Define a fixed base timestamp for better sequencing
+        const baseTime = Date.now();
+        
+        // Add the welcome message
+        const welcomeMessageId = `interviewer-welcome-${baseTime}`;
         addMessageToConversation({
           role: 'interviewer',
           content: welcomeMessage,
           summarizedContent: summarizedWelcome,
           needsAudioPlay: true,
           messageId: welcomeMessageId,
-          timestamp: Date.now()
+          timestamp: baseTime
         });
         
-        // Start the interview
-        setStarted(true);
+        console.log("Added welcome message with ID:", welcomeMessageId);
         
-        // Add the first question after a brief delay to allow the welcome message to be processed
+        // Add the first question after a significant delay
+        // This ensures the welcome message is processed and played first
         setTimeout(() => {
-          const firstQuestionMessageId = `interviewer-question-0-${Date.now()}`;
-          const firstQuestionTimestamp = Date.now() + 500; // Ensure it appears after welcome
+          // Make sure we're not processing any feedback
+          if (processingFeedback) {
+            console.log("Processing feedback in progress, delaying question");
+            // Retry after a delay
+            setTimeout(() => handleStartInterview(), 3000);
+            return;
+          }
           
+          // Calculate a timestamp that's sufficiently after the welcome message
+          const questionTime = baseTime + 5000; // 5 seconds after welcome
+          const firstQuestionMessageId = `interviewer-question-0-${questionTime}`;
+          
+          // Add the first question with explicit timing
           addMessageToConversation({
             role: 'interviewer',
             content: data.questions[0].question,
@@ -252,11 +369,11 @@ export default function Home() {
             summarizedContent: data.questions[0].question,
             needsAudioPlay: true,
             messageId: firstQuestionMessageId,
-            timestamp: firstQuestionTimestamp
+            timestamp: questionTime
           });
           
           console.log("Added first question with ID:", firstQuestionMessageId);
-        }, 500);
+        }, 4000); // Long delay to ensure welcome message is fully processed
       } else {
         setError('Failed to generate interview questions. Please try again.');
       }
@@ -266,19 +383,6 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // Update how summarized feedback is created to be more concise
-  // Create a shorter, more concise version of the feedback for speech
-  const createSummarizedFeedback = (feedback: FeedbackResponse) => {
-    const score = feedback.score;
-    
-    // For Safari, make feedback very brief and direct
-    const strength = feedback.strengths[0] ? feedback.strengths[0].split('.')[0] : '';
-    const improvement = feedback.improvements[0] ? feedback.improvements[0].split('.')[0] : '';
-    
-    // Ultra-concise format for better playback
-    return `Score ${score}/5. Strength: ${strength}. Improvement: ${improvement}.`;
   };
 
   // Create a separate function to directly play feedback audio
@@ -296,28 +400,29 @@ export default function Home() {
     }, 300);
   };
 
-  // Update handleSubmitAnswer to use better feedback audio handling
+  // Completely revised answer submission function
   const handleSubmitAnswer = async () => {
-    // First prime Safari audio
+    // Prime Safari audio
     primeSafariAudioContext();
     
     if (!userAnswer.trim()) {
       setError('Please provide an answer before submitting');
       return;
     }
+    
+    // Set processing flag to block duplicate messages
+    setProcessingFeedback(true);
 
-    // Save the current answer before clearing it to prevent double submission
+    // Save the current answer
     const currentAnswer = userAnswer;
     
-    // Generate a unique message ID for this submission
-    const candidateMessageId = `candidate-${Date.now()}`;
-    
-    // Clear the answer immediately to prevent duplicate submissions
+    // Clear the answer field immediately
     setUserAnswer('');
     setIsSubmittingAnswer(true);
     setError(null);
 
-    // Add user's answer to conversation using the safe method
+    // Add user's answer to conversation
+    const candidateMessageId = `candidate-${Date.now()}`;
     addMessageToConversation({
       role: 'candidate',
       content: currentAnswer,
@@ -331,18 +436,18 @@ export default function Home() {
         ? questions[currentQuestionIndex] 
         : null;
       
-      // Log the current state for debugging
       console.log(`Submitting answer for question ${currentQuestionIndex}, company: ${company}`);
       
       // Prepare conversation history for the API
       const conversationHistory = conversation
+        .filter(msg => msg.role !== 'feedback') // Remove feedback messages from history
         .map(msg => ({
           role: msg.role === 'candidate' ? 'user' : 'assistant',
           content: msg.content
         }))
-        .slice(-6); // Include last 6 messages for context
+        .slice(-6);
       
-      // Add current answer to history to avoid duplicates
+      // Add current answer if not already included
       if (!conversationHistory.some(msg => msg.content === currentAnswer)) {
         conversationHistory.push({
           role: 'user',
@@ -350,12 +455,10 @@ export default function Home() {
         });
       }
       
-      // Get feedback on the answer and generate a dynamic follow-up question
+      // Get feedback from the API
       const feedbackResponse = await fetch('/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userAnswer: currentAnswer,
           question: currentQuestion?.question || "Tell me about yourself",
@@ -364,7 +467,7 @@ export default function Home() {
           company,
           interviewMode,
           conversationHistory,
-          generateFollowUp: true // Signal that we want a dynamic follow-up question
+          generateFollowUp: true
         }),
       });
 
@@ -375,93 +478,99 @@ export default function Home() {
       const feedback = await feedbackResponse.json();
       console.log("Received feedback response:", feedback);
 
-      // Create a concise summarized version of the feedback for speech
-      const summarizedFeedback = createSummarizedFeedback(feedback);
-      console.log("Summarized feedback for audio:", summarizedFeedback);
-
-      // Create a unique ID for this feedback message
-      const feedbackMessageId = `feedback-${Date.now()}`;
-      const feedbackTimestamp = Date.now() + 100; // Add small offset for ordering
+      // Create two versions of the feedback:
+      // 1. Full version for display
+      // 2. Ultra-concise version for audio playback in Safari
+      const displayFeedback = feedback.feedback;
+      const audioFeedback = createAudioFriendlyFeedback(feedback);
       
+      console.log("Audio-friendly feedback created:", audioFeedback);
+
       // Add feedback to conversation
+      const feedbackMessageId = `feedback-for-${candidateMessageId}-${Date.now()}`;
+      const feedbackTimestamp = Date.now() + 100;
+      
       addMessageToConversation({
         role: 'feedback',
-        content: feedback.feedback,
+        content: displayFeedback,
         feedback: feedback,
-        summarizedContent: summarizedFeedback,
+        summarizedContent: audioFeedback, // Use the audio-friendly version
         needsAudioPlay: true,
         messageId: feedbackMessageId,
         timestamp: feedbackTimestamp
       });
       
-      console.log("Added feedback with ID:", feedbackMessageId);
+      console.log("Added feedback to conversation:", feedbackMessageId);
       
-      // Wait for conversation state to update before finding the index
+      // Find and play the feedback audio
       setTimeout(() => {
-        // Find the index of the feedback message to play
         const feedbackIndex = conversation.findIndex(msg => msg.messageId === feedbackMessageId);
         if (feedbackIndex !== -1) {
-          // On Safari, immediately play the feedback audio with special handling
-          console.log(`Found feedback message at index ${feedbackIndex}, preparing to play audio`);
-          playFeedbackAudio(feedbackIndex, summarizedFeedback);
+          console.log(`Playing feedback audio at index ${feedbackIndex}`);
+          playFeedbackAudio(feedbackIndex, audioFeedback);
+          
+          // Wait for feedback to finish before proceeding with next question
+          // Safari audio takes roughly (text length * 80ms) to play
+          const estimatedAudioDuration = Math.max(2000, audioFeedback.length * 80);
+          
+          setTimeout(() => {
+            // Now add the follow-up question if available
+            if (feedback.follow_up_question) {
+              // Increment question counter
+              setCurrentQuestionIndex(prevIndex => prevIndex + 1);
+              
+              // Add the follow-up question
+              const followUpMessageId = `interviewer-follow-up-for-${feedbackMessageId}-${Date.now()}`;
+              const followUpTimestamp = feedbackTimestamp + estimatedAudioDuration + 1000;
+              
+              addMessageToConversation({
+                role: 'interviewer',
+                content: feedback.follow_up_question,
+                question: {
+                  question: feedback.follow_up_question,
+                  category: feedback.follow_up_category || currentQuestion?.category || "Follow-up",
+                  difficulty: currentQuestion?.difficulty || "Medium"
+                },
+                summarizedContent: feedback.follow_up_question,
+                needsAudioPlay: true,
+                messageId: followUpMessageId,
+                timestamp: followUpTimestamp
+              });
+              
+              console.log("Added follow-up question:", followUpMessageId);
+            } else if (currentQuestionIndex >= questions.length - 1) {
+              // Interview completed
+              const concludingMessage = "That concludes our interview. Thank you for your thoughtful responses. I hope this practice helps you in your actual interview with " + company + ".";
+              
+              const concludingMessageId = `interviewer-conclusion-${Date.now()}`;
+              const concludingTimestamp = feedbackTimestamp + estimatedAudioDuration + 1000;
+              
+              addMessageToConversation({
+                role: 'interviewer',
+                content: concludingMessage,
+                summarizedContent: "That's all for today. Thanks for participating in this interview simulation.",
+                needsAudioPlay: true,
+                messageId: concludingMessageId,
+                timestamp: concludingTimestamp
+              });
+              
+              console.log("Added concluding message:", concludingMessageId);
+            }
+            
+            // Clear the processing flag
+            setProcessingFeedback(false);
+          }, estimatedAudioDuration);
+          
         } else {
-          console.warn("Could not find feedback message to play audio for:", feedbackMessageId);
+          console.warn("Could not find feedback message to play audio");
+          setProcessingFeedback(false); // Release the flag
         }
       }, 500);
       
-      // Check if we have a follow-up question from the API
-      if (feedback.follow_up_question) {
-        // Increment question counter
-        setCurrentQuestionIndex(prevIndex => prevIndex + 1);
-        
-        // Set timeout to add the follow-up question after feedback is processed
-        setTimeout(() => {
-          // Add the dynamic follow-up question to conversation with proper sequencing
-          const followUpMessageId = `interviewer-follow-up-${Date.now()}`;
-          const followUpTimestamp = Date.now() + 2000; // Ensure it appears after feedback
-          
-          addMessageToConversation({
-            role: 'interviewer',
-            content: feedback.follow_up_question,
-            question: {
-              question: feedback.follow_up_question,
-              category: feedback.follow_up_category || currentQuestion?.category || "Follow-up",
-              difficulty: currentQuestion?.difficulty || "Medium"
-            },
-            summarizedContent: feedback.follow_up_question,
-            needsAudioPlay: true,
-            messageId: followUpMessageId,
-            timestamp: followUpTimestamp
-          });
-          
-          console.log("Added follow-up question with ID:", followUpMessageId);
-        }, 3000); // Extended delay for better conversation flow in Safari
-      } else if (currentQuestionIndex >= questions.length - 1) {
-        // Interview completed
-        setTimeout(() => {
-          const concludingMessage = "That concludes our interview. Thank you for your thoughtful responses. I hope this practice helps you in your actual interview with " + company + ".";
-          
-          const concludingMessageId = `interviewer-conclusion-${Date.now()}`;
-          const concludingTimestamp = Date.now() + 3000; // Ensure it appears after other messages
-          
-          addMessageToConversation({
-            role: 'interviewer',
-            content: concludingMessage,
-            summarizedContent: "That's all for today. Thanks for participating in this interview simulation.",
-            needsAudioPlay: true,
-            messageId: concludingMessageId,
-            timestamp: concludingTimestamp
-          });
-          
-          console.log("Added concluding message with ID:", concludingMessageId);
-        }, 4000); // Extended delay for Safari
-      }
-      
-      // Answer has already been cleared at the beginning of this function
-      // to prevent duplicate submissions
     } catch (error) {
       console.error('Error submitting answer:', error);
       setError('Failed to submit answer. Please try again.');
+      setProcessingFeedback(false); // Release the flag on error
     } finally {
       setIsSubmittingAnswer(false);
     }
@@ -511,24 +620,32 @@ export default function Home() {
     }
   };
 
-  // Also update handleVoiceInput with the same pattern for feedback audio
+  // Voice input handler with the same improvements
   const handleVoiceInput = (transcript: string) => {
+    // Don't process if we're already processing feedback
+    if (processingFeedback) {
+      console.log("Voice input rejected - already processing feedback");
+      setListeningForVoice(false);
+      return;
+    }
+    
     // Prime Safari audio context first
     primeSafariAudioContext();
     
-    console.log("Received voice transcript:", transcript);
+    console.log("Processing voice transcript:", transcript);
     
-    // Stop recording immediately to prevent double submissions
+    // Stop recording immediately
     setListeningForVoice(false);
     
     if (transcript.trim()) {
+      // Set processing flag to block duplicate messages
+      setProcessingFeedback(true);
+      
       // Set answer in state
       setUserAnswer(transcript);
       
-      // Generate a unique message ID for this voice input
+      // Add user's voice answer to conversation
       const voiceMessageId = `candidate-voice-${Date.now()}`;
-      
-      // Add user's voice answer to conversation with deduplication
       addMessageToConversation({
         role: 'candidate',
         content: transcript,
@@ -536,29 +653,33 @@ export default function Home() {
         timestamp: Date.now()
       });
       
-      // Use the transcript directly rather than relying on the state update
+      // Process the voice input
       const submitAnswer = async (answerText: string) => {
-        if (!answerText.trim()) return;
+        if (!answerText.trim()) {
+          setProcessingFeedback(false);
+          return;
+        }
         
-        console.log("Submitting voice answer to OpenAI:", answerText);
+        console.log("Submitting voice answer to API:", answerText);
         setIsSubmittingAnswer(true);
         setError(null);
         
         try {
-          // Get the current question if available
+          // Get the current question
           const currentQuestion = currentQuestionIndex < questions.length 
             ? questions[currentQuestionIndex] 
             : null;
           
-          // Prepare conversation history for the API
+          // Prepare conversation history
           const conversationHistory = conversation
+            .filter(msg => msg.role !== 'feedback') // Remove feedback from history
             .map(msg => ({
               role: msg.role === 'candidate' ? 'user' : 'assistant',
               content: msg.content
             }))
-            .slice(-6); // Include last 6 messages for context
+            .slice(-6);
           
-          // Add current answer to history to avoid duplicates
+          // Add current answer if not included
           if (!conversationHistory.some(msg => msg.content === answerText)) {
             conversationHistory.push({
               role: 'user',
@@ -566,12 +687,10 @@ export default function Home() {
             });
           }
           
-          // Get feedback on the answer and generate a dynamic follow-up question
+          // Get feedback from the API
           const feedbackResponse = await fetch('/api/chat', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               userAnswer: answerText,
               question: currentQuestion?.question || "Tell me about yourself",
@@ -589,93 +708,100 @@ export default function Home() {
           }
 
           const feedback = await feedbackResponse.json();
-          console.log("Voice input: Received feedback response:", feedback);
+          console.log("Voice input: Received feedback response");
 
-          // Create a more concise summarized version of the feedback for speech
-          const summarizedFeedback = createSummarizedFeedback(feedback);
-          console.log("Voice input: Summarized feedback for audio:", summarizedFeedback);
+          // Create two versions of the feedback
+          const displayFeedback = feedback.feedback;
+          const audioFeedback = createAudioFriendlyFeedback(feedback);
+          
+          console.log("Voice input: Audio-friendly feedback created:", audioFeedback);
 
-          // Add feedback to conversation with unique ID and timestamp
-          const feedbackMessageId = `feedback-voice-${Date.now()}`;
-          const feedbackTimestamp = Date.now() + 100; // Add small offset for ordering
+          // Add feedback to conversation
+          const feedbackMessageId = `feedback-for-${voiceMessageId}-${Date.now()}`;
+          const feedbackTimestamp = Date.now() + 100;
           
           addMessageToConversation({
             role: 'feedback',
-            content: feedback.feedback,
+            content: displayFeedback,
             feedback: feedback,
-            summarizedContent: summarizedFeedback,
+            summarizedContent: audioFeedback,
             needsAudioPlay: true,
             messageId: feedbackMessageId,
             timestamp: feedbackTimestamp
           });
           
-          console.log("Voice input: Added feedback with ID:", feedbackMessageId);
+          console.log("Voice input: Added feedback to conversation:", feedbackMessageId);
           
-          // Special Safari handling for feedback audio
+          // Find and play the feedback audio
           setTimeout(() => {
-            // Find the index of the feedback message to play
             const feedbackIndex = conversation.findIndex(msg => msg.messageId === feedbackMessageId);
             if (feedbackIndex !== -1) {
-              console.log(`Voice input: Found feedback at index ${feedbackIndex}, preparing to play audio`);
-              playFeedbackAudio(feedbackIndex, summarizedFeedback);
+              console.log(`Voice input: Playing feedback audio at index ${feedbackIndex}`);
+              playFeedbackAudio(feedbackIndex, audioFeedback);
+              
+              // Wait for feedback to finish before proceeding
+              const estimatedAudioDuration = Math.max(2000, audioFeedback.length * 80);
+              
+              setTimeout(() => {
+                // Now add the follow-up question if available
+                if (feedback.follow_up_question) {
+                  // Increment question counter
+                  setCurrentQuestionIndex(prevIndex => prevIndex + 1);
+                  
+                  // Add the follow-up question
+                  const followUpMessageId = `interviewer-follow-up-for-${feedbackMessageId}-${Date.now()}`;
+                  const followUpTimestamp = feedbackTimestamp + estimatedAudioDuration + 1000;
+                  
+                  addMessageToConversation({
+                    role: 'interviewer',
+                    content: feedback.follow_up_question,
+                    question: {
+                      question: feedback.follow_up_question,
+                      category: feedback.follow_up_category || currentQuestion?.category || "Follow-up",
+                      difficulty: currentQuestion?.difficulty || "Medium"
+                    },
+                    summarizedContent: feedback.follow_up_question,
+                    needsAudioPlay: true,
+                    messageId: followUpMessageId,
+                    timestamp: followUpTimestamp
+                  });
+                  
+                  console.log("Voice input: Added follow-up question:", followUpMessageId);
+                } else if (currentQuestionIndex >= questions.length - 1) {
+                  // Interview completed
+                  const concludingMessage = "That concludes our interview. Thank you for your thoughtful responses. I hope this practice helps you in your actual interview with " + company + ".";
+                  
+                  const concludingMessageId = `interviewer-conclusion-voice-${Date.now()}`;
+                  const concludingTimestamp = feedbackTimestamp + estimatedAudioDuration + 1000;
+                  
+                  addMessageToConversation({
+                    role: 'interviewer',
+                    content: concludingMessage,
+                    summarizedContent: "That's all for today. Thanks for participating in this interview simulation.",
+                    needsAudioPlay: true,
+                    messageId: concludingMessageId,
+                    timestamp: concludingTimestamp
+                  });
+                  
+                  console.log("Voice input: Added concluding message:", concludingMessageId);
+                }
+                
+                // Clear the processing flag
+                setProcessingFeedback(false);
+              }, estimatedAudioDuration);
+              
             } else {
-              console.warn("Voice input: Could not find feedback message to play audio for:", feedbackMessageId);
+              console.warn("Voice input: Could not find feedback message to play audio");
+              setProcessingFeedback(false);
             }
           }, 500);
-          
-          // Check if we have a follow-up question from the API
-          if (feedback.follow_up_question) {
-            // Increment question counter
-            setCurrentQuestionIndex(prevIndex => prevIndex + 1);
-            
-            // Set timeout to add the follow-up question after feedback is processed
-            setTimeout(() => {
-              // Add the dynamic follow-up question to conversation
-              const followUpMessageId = `interviewer-follow-up-voice-${Date.now()}`;
-              const followUpTimestamp = Date.now() + 1000; // Ensure it appears after feedback
-              
-              addMessageToConversation({
-                role: 'interviewer',
-                content: feedback.follow_up_question,
-                question: {
-                  question: feedback.follow_up_question,
-                  category: feedback.follow_up_category || currentQuestion?.category || "Follow-up",
-                  difficulty: currentQuestion?.difficulty || "Medium"
-                },
-                summarizedContent: feedback.follow_up_question,
-                needsAudioPlay: true,
-                messageId: followUpMessageId,
-                timestamp: followUpTimestamp
-              });
-              
-              console.log("Voice input: Added follow-up question with ID:", followUpMessageId);
-            }, 1500); // Longer delay for better conversation flow
-          } else if (currentQuestionIndex >= questions.length - 1) {
-            // Interview completed
-            setTimeout(() => {
-              const concludingMessage = "That concludes our interview. Thank you for your thoughtful responses. I hope this practice helps you in your actual interview with " + company + ".";
-              
-              const concludingMessageId = `interviewer-conclusion-voice-${Date.now()}`;
-              const concludingTimestamp = Date.now() + 1500; // Ensure it appears after other messages
-              
-              addMessageToConversation({
-                role: 'interviewer',
-                content: concludingMessage,
-                summarizedContent: "That's all for today. Thanks for participating in this interview simulation.",
-                needsAudioPlay: true,
-                messageId: concludingMessageId,
-                timestamp: concludingTimestamp
-              });
-              
-              console.log("Voice input: Added concluding message with ID:", concludingMessageId);
-            }, 2000);
-          }
 
           // Clear the answer
           setUserAnswer('');
         } catch (error) {
-          console.error('Error submitting answer:', error);
+          console.error('Error submitting voice answer:', error);
           setError('Failed to submit answer. Please try again.');
+          setProcessingFeedback(false);
         } finally {
           setIsSubmittingAnswer(false);
         }
@@ -683,6 +809,8 @@ export default function Home() {
       
       // Process the transcript immediately
       submitAnswer(transcript);
+    } else {
+      setProcessingFeedback(false);
     }
   };
 
