@@ -44,6 +44,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [listeningForVoice, setListeningForVoice] = useState(false);
   const [interviewMode, setInterviewMode] = useState<InterviewMode>('technical');
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const lastAudioMessageIdRef = useRef<number | null>(null);
 
@@ -277,6 +278,15 @@ export default function Home() {
     lastAudioMessageIdRef.current = null;
   };
 
+  // Handle audio playback started and ended
+  const handleAudioPlaybackStarted = () => {
+    setIsSpeaking(true);
+  };
+
+  const handleAudioPlaybackEnded = () => {
+    setIsSpeaking(false);
+  };
+
   return (
     <main className="flex min-h-screen flex-col bg-gradient-to-b from-gray-900 to-gray-950 text-white">
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 pb-8">
@@ -421,28 +431,82 @@ export default function Home() {
                 {/* Animated interviewer image */}
                 <div className="relative w-full aspect-square rounded-lg overflow-hidden bg-gradient-to-b from-gray-700 to-gray-900 mb-4">
                   <div className="absolute inset-0 flex items-center justify-center">
-                    {/* Replace this with an actual animated interviewer image */}
-                    <div className="relative w-full h-full">
-                      <Image 
-                        src={interviewMode === 'technical' 
-                          ? "https://www.animatedimages.org/data/media/1660/animated-interview-image-0011.gif"
-                          : "https://www.animatedimages.org/data/media/1660/animated-interview-image-0003.gif"
-                        }
-                        alt="AI Interviewer"
-                        className="object-cover rounded-lg"
-                        fill
-                        sizes="(max-width: 768px) 100vw, 33vw"
-                        onError={() => {
-                          // Fallback if image fails to load
-                          const placeholderImage = 'https://via.placeholder.com/400x400?text=AI+Interviewer';
-                          const imgElement = document.querySelector('.object-cover') as HTMLImageElement;
-                          if (imgElement && imgElement.src !== placeholderImage) {
-                            imgElement.src = placeholderImage;
-                          }
-                        }}
-                      />
+                    {/* Interactive animated avatar instead of unreliable GIFs */}
+                    <div className={`w-4/5 h-4/5 ${isSpeaking ? 'animate-subtle-bounce' : ''}`}>
+                      <svg viewBox="0 0 200 200" className="w-full h-full">
+                        {/* Background gradient */}
+                        <defs>
+                          <linearGradient id="avatarGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor={interviewMode === 'technical' ? '#3b82f6' : '#6366f1'} stopOpacity="0.6" />
+                            <stop offset="100%" stopColor={interviewMode === 'technical' ? '#1e40af' : '#4338ca'} stopOpacity="0.9" />
+                          </linearGradient>
+                          <clipPath id="avatarClip">
+                            <circle cx="100" cy="85" r="70" />
+                          </clipPath>
+                        </defs>
+                        
+                        {/* Background circle with subtle pulse animation */}
+                        <circle cx="100" cy="85" r="70" fill="url(#avatarGradient)" className="animate-pulse" />
+                        
+                        {/* Head shape */}
+                        <circle cx="100" cy="70" r="45" fill="#f8fafc" />
+                        
+                        {/* Eyes with blink animation */}
+                        <g className={isSpeaking ? 'animate-blink' : ''}>
+                          <circle cx="80" cy="65" r="6" fill="#1e293b" />
+                          <circle cx="120" cy="65" r="6" fill="#1e293b" />
+                        </g>
+                        
+                        {/* Eyebrows - raise when speaking */}
+                        <g transform={isSpeaking ? 'translate(0, -2)' : 'translate(0, 0)'} 
+                           className="transition-transform duration-300">
+                          <path d="M70,55 Q80,50 90,55" stroke="#1e293b" strokeWidth="2" fill="transparent" />
+                          <path d="M110,55 Q120,50 130,55" stroke="#1e293b" strokeWidth="2" fill="transparent" />
+                        </g>
+                        
+                        {/* Mouth - animates when speaking */}
+                        <g className={isSpeaking ? 'animate-talk' : ''}>
+                          <path 
+                            d={isSpeaking ? 'M75,95 Q100,110 125,95' : 'M75,95 Q100,95 125,95'} 
+                            stroke="#1e293b" 
+                            strokeWidth="3" 
+                            fill="transparent"
+                            transform-origin="center"
+                          />
+                        </g>
+                        
+                        {/* Suit/clothes */}
+                        <path d="M55,135 L100,160 L145,135 V180 H55 Z" fill={interviewMode === 'technical' ? '#1d4ed8' : '#4f46e5'} />
+                        <rect x="85" y="115" width="30" height="40" fill="white" />
+                        <rect x="97" y="115" width="6" height="40" fill={interviewMode === 'technical' ? '#1d4ed8' : '#4f46e5'} />
+                        
+                        {/* Company badge */}
+                        <g transform="translate(80, 125)">
+                          <rect x="0" y="0" width="40" height="15" rx="3" fill="white" stroke="#64748b" strokeWidth="1" />
+                          <text x="5" y="11" fontSize="9" fill="#334155" className="font-semibold">{company ? company.substring(0, 8) : 'AI'}</text>
+                        </g>
+                        
+                        {/* Status indicator light */}
+                        <circle 
+                          cx="165" 
+                          cy="30" 
+                          r="8" 
+                          fill={isSpeaking ? "#10b981" : "#6b7280"} 
+                          className={isSpeaking ? "animate-pulse" : ""}
+                        />
+                      </svg>
                     </div>
                   </div>
+                  
+                  {/* Speaking indicator */}
+                  {isSpeaking && (
+                    <div className="absolute bottom-3 left-0 right-0 flex justify-center">
+                      <div className="bg-black/40 backdrop-blur-sm px-3 py-1 rounded-full text-xs text-white flex items-center">
+                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-2"></div>
+                        Speaking...
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
                 {/* Current question info */}
@@ -514,6 +578,8 @@ export default function Home() {
                                 text={message.summarizedContent || message.content}
                                 autoPlay={true}
                                 hideControls={true}
+                                onPlaybackStart={handleAudioPlaybackStarted}
+                                onPlaybackEnd={handleAudioPlaybackEnded}
                               />
                             )}
                           </div>
@@ -584,6 +650,8 @@ export default function Home() {
                                 text={message.summarizedContent || message.content}
                                 autoPlay={true}
                                 hideControls={true}
+                                onPlaybackStart={handleAudioPlaybackStarted}
+                                onPlaybackEnd={handleAudioPlaybackEnded}
                               />
                             )}
                           </div>

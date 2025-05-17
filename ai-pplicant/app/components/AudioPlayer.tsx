@@ -7,9 +7,18 @@ interface AudioPlayerProps {
   voiceId?: string;
   autoPlay?: boolean;
   hideControls?: boolean;
+  onPlaybackStart?: () => void;
+  onPlaybackEnd?: () => void;
 }
 
-export default function AudioPlayer({ text, voiceId, autoPlay = false, hideControls = false }: AudioPlayerProps) {
+export default function AudioPlayer({ 
+  text, 
+  voiceId, 
+  autoPlay = false, 
+  hideControls = false,
+  onPlaybackStart,
+  onPlaybackEnd
+}: AudioPlayerProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mockMessage, setMockMessage] = useState<string | null>(null);
@@ -52,6 +61,17 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
         if (jsonData.mockData) {
           setMockMessage(jsonData.message || 'Using mock audio in development mode');
           setIsLoading(false);
+          
+          // In mock mode, simulate audio playback events with timeouts
+          if (onPlaybackStart) {
+            onPlaybackStart();
+            // Simulate the audio duration for the mock response
+            const mockDuration = text.length * 50; // ~50ms per character as a rough estimate
+            setTimeout(() => {
+              if (onPlaybackEnd) onPlaybackEnd();
+            }, Math.min(Math.max(mockDuration, 1000), 10000)); // Between 1-10 seconds based on text length
+          }
+          
           return;
         }
       }
@@ -64,6 +84,19 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
       
       // Update the audio element with the new source
       if (audioRef.current) {
+        // Set up event listeners for playback start/end
+        if (onPlaybackStart) {
+          audioRef.current.onplay = () => {
+            onPlaybackStart();
+          };
+        }
+        
+        if (onPlaybackEnd) {
+          audioRef.current.onended = () => {
+            onPlaybackEnd();
+          };
+        }
+        
         audioRef.current.src = audioUrl;
         
         // Play the audio immediately
@@ -73,6 +106,7 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
         } catch (playError) {
           console.error('Error playing audio:', playError);
           setError('Browser blocked audio playback. Please interact with the page first.');
+          if (onPlaybackEnd) onPlaybackEnd(); // Ensure we still call end when there's an error
         }
       }
 
@@ -81,8 +115,9 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
       console.error('Error playing audio:', err);
       setError('Error playing audio');
       setIsLoading(false);
+      if (onPlaybackEnd) onPlaybackEnd(); // Ensure we still call end when there's an error
     }
-  }, [text, voiceId]);
+  }, [text, voiceId, onPlaybackStart, onPlaybackEnd]);
 
   // Play audio immediately on mount if autoPlay is true
   useEffect(() => {
@@ -90,7 +125,36 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false, hideContr
       console.log("AudioPlayer: Auto-playing audio for:", text.substring(0, 30) + "...");
       playAudio();
     }
-  }, [autoPlay, text, playAudio]);
+    
+    // Clean up on unmount - make sure to end playback state
+    return () => {
+      if (onPlaybackEnd) onPlaybackEnd();
+    };
+  }, [autoPlay, text, playAudio, onPlaybackEnd]);
+
+  // Set up audio element event listeners
+  useEffect(() => {
+    const audioElement = audioRef.current;
+    
+    if (audioElement) {
+      if (onPlaybackStart) {
+        audioElement.onplay = onPlaybackStart;
+      }
+      
+      if (onPlaybackEnd) {
+        audioElement.onended = onPlaybackEnd;
+        audioElement.onpause = onPlaybackEnd;
+      }
+    }
+    
+    return () => {
+      if (audioElement) {
+        audioElement.onplay = null;
+        audioElement.onended = null;
+        audioElement.onpause = null;
+      }
+    };
+  }, [onPlaybackStart, onPlaybackEnd]);
 
   if (hideControls) {
     return (
