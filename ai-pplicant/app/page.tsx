@@ -34,19 +34,24 @@ interface ConversationMessage {
 // Interview mode type
 type InterviewMode = 'technical' | 'behavioral';
 
-// Add a utility function at the top level to force prime audio context specifically for Safari
+// Add this function near the top of the file to check if using Safari
+const isSafari = typeof navigator !== 'undefined' ? 
+  /^((?!chrome|android).)*safari/i.test(navigator.userAgent) : false;
+
+// Update the primeSafariAudioContext function to be more robust
 const primeSafariAudioContext = () => {
   try {
     // Check if this is Safari
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
     if (isSafari) {
       console.log("Priming Safari audio context");
       const AudioContextClass = window.AudioContext || 
         ((window as {webkitAudioContext?: typeof AudioContext}).webkitAudioContext);
       
       if (AudioContextClass) {
+        // Create a shared audio context that's always active
         const audioCtx = new AudioContextClass();
-        // Create and play a short silent sound
+        
+        // For Safari, we need to create an actual sound
         const oscillator = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
         gainNode.gain.value = 0.01; // Very low volume
@@ -60,7 +65,12 @@ const primeSafariAudioContext = () => {
           audioCtx.resume();
         }
         
-        console.log("Safari audio context primed successfully");
+        // Create a user gesture simulation by a tiny interaction
+        document.addEventListener('DOMContentLoaded', function() {
+          document.body.click();
+        });
+        
+        console.log("Safari audio context primed successfully", audioCtx.state);
         return audioCtx;
       }
     }
@@ -70,6 +80,9 @@ const primeSafariAudioContext = () => {
     return null;
   }
 };
+
+// Add the constant for the voice ID at the top level
+const VOICE_ID = 'aEO01A4wXwd1O8GPgGlF';
 
 export default function Home() {
   const [jobDescription, setJobDescription] = useState('');
@@ -278,18 +291,37 @@ export default function Home() {
     lastAudioMessageIdRef.current = null; // Reset any audio playback state
     
     try {
-      // Prime audio for Safari - creates a silent audio context on user interaction
-      const AudioContextClass = window.AudioContext || 
-        ((window as {webkitAudioContext?: typeof AudioContext}).webkitAudioContext);
-      
-      if (AudioContextClass) {
-        const audioContext = new AudioContextClass();
-        const silentBuffer = audioContext.createBuffer(1, 1, 22050);
-        const source = audioContext.createBufferSource();
-        source.buffer = silentBuffer;
-        source.connect(audioContext.destination);
-        source.start();
-        console.log("Audio context primed for Safari");
+      // Prime audio for Safari with extra measures
+      if (isSafari) {
+        // Multiple priming attempts for Safari
+        primeSafariAudioContext();
+        
+        // Create a user gesture on the document to help unlock audio
+        document.body.click();
+        
+        // Also try playing a silent audio element
+        const silentAudio = new Audio();
+        silentAudio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABIADAwMDAwMDAwMDAwMDAwMDAwMDAwMDV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV6urq6urq6urq6urq6urq6urq6urq6v////////////////////////////////8AAAAATGF2YzU4LjU0AAAAAAAAAAAAAAAAJAAAAAAAAAAAASDs90hvAAAAAAAAAAAAAAAAAAAA//MUZAAAAAGkAAAAAAAAA0gAAAAATEFN//MUZAMAAAGkAAAAAAAAA0gAAAAARTMu//MUZAYAAAGkAAAAAAAAA0gAAAAAOTku//MUZAkAAAGkAAAAAAAAA0gAAAAANVVV";
+        silentAudio.load();
+        try {
+          silentAudio.play().catch(e => console.log("Silent audio play attempt:", e));
+        } catch (e) {
+          console.log("Silent audio exception:", e);
+        }
+      } else {
+        // Regular audio priming for other browsers
+        const AudioContextClass = window.AudioContext || 
+          ((window as {webkitAudioContext?: typeof AudioContext}).webkitAudioContext);
+        
+        if (AudioContextClass) {
+          const audioContext = new AudioContextClass();
+          const silentBuffer = audioContext.createBuffer(1, 1, 22050);
+          const source = audioContext.createBufferSource();
+          source.buffer = silentBuffer;
+          source.connect(audioContext.destination);
+          source.start();
+          console.log("Audio context primed for browsers");
+        }
       }
       
       const response = await fetch('/api/interview', {
@@ -315,12 +347,6 @@ export default function Home() {
         setQuestions(data.questions);
         setCurrentQuestionIndex(0);
         
-        // Create a more conversational welcome message with adaptive interview explanation
-        const welcomeMessage = `Welcome to your ${interviewMode} interview preparation for ${company}. I'll adapt my questions based on your answers to create a natural conversation, just like in a real interview. This will help you improve your interviewing skills for the ${company} position. Let's start with the first question.`;
-        const summarizedWelcome = `Welcome to your ${interviewMode} interview with ${company}. This interview will adapt to your responses. Let's begin.`;
-        
-        console.log("Starting interview with initial messages");
-        
         // Start the interview first - this ensures the UI is ready
         setStarted(true);
         
@@ -333,7 +359,12 @@ export default function Home() {
         // Define a fixed base timestamp for better sequencing
         const baseTime = Date.now();
         
-        // Add the welcome message
+        console.log("Starting interview with welcome message");
+        
+        // Add the welcome message with special Safari handling
+        const welcomeMessage = `Welcome to your ${interviewMode} interview preparation for ${company}. I'll adapt my questions based on your answers to create a natural conversation, just like in a real interview. This will help you improve your interviewing skills for the ${company} position. Let's start with the first question.`;
+        const summarizedWelcome = `Welcome to your ${interviewMode} interview with ${company}. Let's begin.`;
+        
         const welcomeMessageId = `interviewer-welcome-${baseTime}`;
         addMessageToConversation({
           role: 'interviewer',
@@ -344,24 +375,31 @@ export default function Home() {
           timestamp: baseTime
         });
         
-        console.log("Added welcome message with ID:", welcomeMessageId);
+        console.log("Added welcome message, attempting to play audio");
         
-        // Add the first question after a significant delay
-        // This ensures the welcome message is processed and played first
+        // For Safari, we need to explicitly try to play the welcome audio
+        if (isSafari) {
+          setTimeout(() => {
+            // Force audio playback of welcome message
+            const welcomeIndex = conversation.findIndex(msg => msg.messageId === welcomeMessageId);
+            if (welcomeIndex !== -1) {
+              console.log("Setting welcome message for Safari audio playback", welcomeIndex);
+              lastAudioMessageIdRef.current = welcomeIndex;
+              
+              // Force a UI update to trigger the AudioPlayer
+              setIsSpeaking(true);
+              setTimeout(() => setIsSpeaking(false), 10);
+            }
+          }, 500);
+        }
+        
+        // Add the first question after a delay
         setTimeout(() => {
-          // Make sure we're not processing any feedback
-          if (processingFeedback) {
-            console.log("Processing feedback in progress, delaying question");
-            // Retry after a delay
-            setTimeout(() => handleStartInterview(), 3000);
-            return;
-          }
-          
-          // Calculate a timestamp that's sufficiently after the welcome message
-          const questionTime = baseTime + 5000; // 5 seconds after welcome
+          // Add the first question with explicit timing
+          const questionTime = baseTime + 3000; // 3 seconds after welcome
           const firstQuestionMessageId = `interviewer-question-0-${questionTime}`;
           
-          // Add the first question with explicit timing
+          console.log("Adding first question to conversation");
           addMessageToConversation({
             role: 'interviewer',
             content: data.questions[0].question,
@@ -372,8 +410,19 @@ export default function Home() {
             timestamp: questionTime
           });
           
-          console.log("Added first question with ID:", firstQuestionMessageId);
-        }, 4000); // Long delay to ensure welcome message is fully processed
+          // For Safari, explicitly set this question for audio playback if welcome is done
+          if (isSafari) {
+            setTimeout(() => {
+              if (!isSpeaking) {
+                const questionIndex = conversation.findIndex(msg => msg.messageId === firstQuestionMessageId);
+                if (questionIndex !== -1) {
+                  console.log("Setting first question for Safari audio playback", questionIndex);
+                  lastAudioMessageIdRef.current = questionIndex;
+                }
+              }
+            }, 1000);
+          }
+        }, isSafari ? 4000 : 2000); // Longer delay for Safari
       } else {
         setError('Failed to generate interview questions. Please try again.');
       }
@@ -385,7 +434,7 @@ export default function Home() {
     }
   };
 
-  // Create a separate function to directly play feedback audio
+  // Update the playFeedbackAudio function to use the voice ID
   const playFeedbackAudio = (index: number, feedbackText: string) => {
     // First prime Safari audio context 
     primeSafariAudioContext();
@@ -397,6 +446,9 @@ export default function Home() {
       setIsSpeaking(false);
       // Set the audio message to play
       lastAudioMessageIdRef.current = index;
+      
+      // Make sure the AudioPlayer component gets the voice ID by re-rendering
+      setConversation(prev => [...prev]);
     }, 300);
   };
 
@@ -829,6 +881,7 @@ export default function Home() {
     setIsSpeaking(true);
   };
 
+  // Update the handleAudioPlaybackEnded function to better handle follow-up questions
   const handleAudioPlaybackEnded = () => {
     const currentAudioIndex = lastAudioMessageIdRef.current;
     console.log(`Audio playback ended for message ${currentAudioIndex}, message type: ${currentAudioIndex !== null ? conversation[currentAudioIndex]?.role : 'none'}`);
@@ -847,7 +900,6 @@ export default function Home() {
           : 0;
         
         // Find the next message in sequence that needs audio playback
-        // We prioritize messages that come after the current one in the conversation
         let nextMessageIndex = -1;
         let earliestTimestamp = Number.MAX_SAFE_INTEGER;
         
@@ -878,6 +930,53 @@ export default function Home() {
           console.log(`Found message ${nextMessageIndex} that needs audio playback next`);
           lastAudioMessageIdRef.current = nextMessageIndex;
           return;
+        }
+        
+        // If we've just finished playing a feedback message, check if we need to trigger a follow-up question
+        if (currentAudioIndex !== null && conversation[currentAudioIndex]?.role === 'feedback') {
+          console.log("Feedback audio finished playing, checking for follow-up question data");
+          const feedbackMsg = conversation[currentAudioIndex];
+          
+          // Check if this feedback has follow-up question data
+          if (feedbackMsg?.feedback?.follow_up_question) {
+            console.log("Found follow-up question data, will add it to conversation");
+            
+            // Get the current question information
+            const currentQuestion = currentQuestionIndex < questions.length 
+              ? questions[currentQuestionIndex] 
+              : null;
+            
+            // Prepare the follow-up question data
+            const followUpQuestion = feedbackMsg.feedback.follow_up_question;
+            const followUpCategory = feedbackMsg.feedback.follow_up_category || 
+                                   currentQuestion?.category || "Follow-up";
+            const questionDifficulty = currentQuestion?.difficulty || "Medium";
+            
+            // Increment question counter
+            setCurrentQuestionIndex(prevIndex => prevIndex + 1);
+            
+            // Add follow-up with a unique ID tied to the feedback message
+            const feedbackId = feedbackMsg.messageId || `feedback-${Date.now()}`;
+            const followUpMessageId = `interviewer-follow-up-for-${feedbackId}-${Date.now()}`;
+            const followUpTimestamp = Date.now() + 1000;
+            
+            // Add the follow-up question
+            addMessageToConversation({
+              role: 'interviewer',
+              content: followUpQuestion,
+              question: {
+                question: followUpQuestion,
+                category: followUpCategory,
+                difficulty: questionDifficulty
+              },
+              summarizedContent: followUpQuestion,
+              needsAudioPlay: true,
+              messageId: followUpMessageId,
+              timestamp: followUpTimestamp
+            });
+            
+            console.log("Added follow-up question from feedback data");
+          }
         }
       }
       
@@ -1300,6 +1399,7 @@ export default function Home() {
                                   hideControls={true}
                                   onPlaybackStart={handleAudioPlaybackStarted}
                                   onPlaybackEnd={handleAudioPlaybackEnded}
+                                  voiceId={VOICE_ID}
                                 />
                               </>
                             )}
@@ -1377,6 +1477,7 @@ export default function Home() {
                                   onPlaybackStart={handleAudioPlaybackStarted}
                                   onPlaybackEnd={handleAudioPlaybackEnded}
                                   isFeedback={true}
+                                  voiceId={VOICE_ID}
                                 />
                               </>
                             )}
