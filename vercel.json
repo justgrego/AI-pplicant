@@ -1,0 +1,6 @@
+{
+  "buildCommand": "cd ai-pplicant && npm run build",
+  "installCommand": "cd ai-pplicant && npm install",
+  "outputDirectory": "ai-pplicant/.next",
+  "framework": "nextjs"
+} 
