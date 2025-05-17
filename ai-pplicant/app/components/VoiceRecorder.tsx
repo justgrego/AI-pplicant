@@ -38,9 +38,15 @@ interface VoiceRecorderProps {
   autoStopAfterSilence?: boolean;
 }
 
+// Helper function to detect Safari browser
+const isSafari = () => {
+  return /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+};
+
 export default function VoiceRecorder({ 
   onTranscription, 
   isListening = false,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   autoStopAfterSilence = false
 }: VoiceRecorderProps) {
   const [recording, setRecording] = useState(false);
@@ -63,6 +69,15 @@ export default function VoiceRecorder({
   
   // Helper function to get supported MIME type for audio recording
   const getSupportedMimeType = () => {
+    // Safari typically only supports these formats
+    if (isSafari()) {
+      if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        return 'audio/mp4';
+      }
+      return 'audio/aac';
+    }
+    
+    // For other browsers, try webm or ogg first
     const types = [
       'audio/webm',
       'audio/webm;codecs=opus',
@@ -93,6 +108,7 @@ export default function VoiceRecorder({
     return () => {
       stopRecognition();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
   // Setup audio visualization when recording
@@ -217,8 +233,20 @@ export default function VoiceRecorder({
       audioChunksRef.current = [];
       setError(null);
       
-      // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Special handling for macOS in Chrome
+      const constraints = { 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          // These settings help on MacBooks
+          sampleRate: 48000,
+          channelCount: 1,
+        } 
+      };
+      
+      // Request microphone access with optimized constraints
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       
       // Setup audio visualization
       setupAudioVisualization(stream);
@@ -334,7 +362,7 @@ export default function VoiceRecorder({
       // Create new recognition instance
       const recognition = new SpeechRecognition();
       
-      // Configure recognition
+      // Configure recognition - optimized for Chrome on MacBook
       recognition.lang = 'en-US';
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -344,9 +372,26 @@ export default function VoiceRecorder({
       recognitionRef.current = recognition;
       
       // Also get microphone access for visualization
-      navigator.mediaDevices.getUserMedia({ audio: true })
+      // Use optimized constraints for macOS
+      const constraints = { 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 1,
+        } 
+      };
+      
+      navigator.mediaDevices.getUserMedia(constraints)
         .then(setupAudioVisualization)
-        .catch(err => console.error("Couldn't access microphone for visualization:", err));
+        .catch(err => {
+          console.error("Couldn't access microphone for visualization:", err);
+          // Try again with basic constraints if fancy ones fail
+          navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(setupAudioVisualization)
+            .catch(err => console.error("Failed with basic constraints too:", err));
+        });
       
       // Handle results
       recognition.onresult = (event: SpeechRecognitionEvent) => {
@@ -366,8 +411,8 @@ export default function VoiceRecorder({
         console.log("VoiceRecorder: Recognition ended, transcript:", transcript);
         
         // Submit the transcript if available
-        if (transcript) {
-          onTranscription(transcript);
+          if (transcript) {
+            onTranscription(transcript);
         }
         
         // If still listening but not recording, restart recognition
@@ -390,7 +435,7 @@ export default function VoiceRecorder({
         
         // If "no-speech" error, we don't need to show it to the user
         if (event.error !== 'no-speech') {
-          setError(`Speech recognition error: ${event.error}`);
+        setError(`Speech recognition error: ${event.error}`);
           
           // For network errors or permission errors, switch to fallback
           if (event.error === 'network' || event.error === 'not-allowed') {
@@ -412,7 +457,7 @@ export default function VoiceRecorder({
       setUseFallbackRecorder(true);
       startMediaRecording();
     }
-  }, [autoStopAfterSilence, isListening, onTranscription, transcript, setupAudioVisualization, cleanupAudio, startMediaRecording, recording]);
+  }, [isListening, onTranscription, transcript, setupAudioVisualization, cleanupAudio, startMediaRecording, recording]);
   
   // Handle changes to the isListening prop
   useEffect(() => {
@@ -422,7 +467,7 @@ export default function VoiceRecorder({
       if (useFallbackRecorder) {
         startMediaRecording();
       } else {
-        startRecognition();
+      startRecognition();
       }
     } else if (!isListening && recording) {
       stopRecognition();
@@ -436,9 +481,9 @@ export default function VoiceRecorder({
       <div className="flex flex-col items-center justify-center">
         <div className="flex items-center justify-center mb-2">
           <div className={`w-4 h-4 rounded-full ${recording ? 'bg-red-500 animate-pulse' : 'bg-gray-400'}`}></div>
-          <span className="ml-2 text-sm text-gray-300">
-            {recording ? 'Recording voice...' : 'Voice recorder ready'}
-          </span>
+        <span className="ml-2 text-sm text-gray-300">
+          {recording ? 'Recording voice...' : 'Voice recorder ready'}
+        </span>
         </div>
         
         {/* Audio level visualization */}

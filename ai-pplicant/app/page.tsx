@@ -587,7 +587,7 @@ export default function Home() {
                         ? 'bg-gray-600 cursor-not-allowed'
                         : micPermissionState === 'denied'
                           ? 'bg-gray-600'
-                          : 'bg-blue-600 hover:bg-blue-700'
+                      : 'bg-blue-600 hover:bg-blue-700'
                   }`}
                   disabled={micPermissionState === 'denied' || isSpeaking}
                 >

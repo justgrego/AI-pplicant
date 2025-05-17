@@ -123,14 +123,17 @@ export default function AudioPlayer({
       playAudioOnce();
     }
     
+    // Store current audio ref for cleanup
+    const currentAudioRef = audioRef.current;
+    
     return () => {
       // Clean up on unmount
-      if (audioRef.current) {
-        audioRef.current.pause();
-        if (audioRef.current.src) {
+      if (currentAudioRef) {
+        currentAudioRef.pause();
+        if (currentAudioRef.src) {
           try {
-            URL.revokeObjectURL(audioRef.current.src);
-          } catch (e) {
+            URL.revokeObjectURL(currentAudioRef.src);
+          } catch {
             // Ignore errors when revoking
           }
         }
