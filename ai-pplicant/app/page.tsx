@@ -7,6 +7,7 @@ import VoiceRecorder from './components/VoiceRecorder';
 interface Question {
   question: string;
   category: string;
+  difficulty?: string;
 }
 
 interface FeedbackResponse {
@@ -132,6 +133,7 @@ export default function Home() {
           userAnswer,
           question: currentQuestion.question,
           category: currentQuestion.category,
+          difficulty: currentQuestion.difficulty,
           company,
         }),
       });
@@ -278,7 +280,7 @@ export default function Home() {
                           <span className="text-white font-bold">I</span>
                         </div>
                         <span className="font-semibold text-blue-300">
-                          Interviewer {message.question && `(${message.question.category})`}
+                          Interviewer {message.question && `(${message.question.category}${message.question.difficulty ? `, ${message.question.difficulty}` : ''})`}
                         </span>
                       </div>
                       <p className="text-white">{message.content}</p>
