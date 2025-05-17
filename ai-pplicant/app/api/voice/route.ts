@@ -82,14 +82,16 @@ export async function POST(request: NextRequest) {
       const audioArrayBuffer = await response.arrayBuffer();
       console.log(`Voice API: Successfully generated audio (${audioArrayBuffer.byteLength} bytes)`);
       
-      // Return the audio data as a response
+      // Return the audio data as a response with headers optimized for Safari
       return new NextResponse(audioArrayBuffer, {
         headers: {
           'Content-Type': 'audio/mpeg',
           'Content-Length': audioArrayBuffer.byteLength.toString(),
+          'Content-Disposition': 'inline',
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Headers': 'Content-Type, Range',
+          'Accept-Ranges': 'bytes',
           'Cache-Control': 'no-cache, no-store, must-revalidate'
         },
       });

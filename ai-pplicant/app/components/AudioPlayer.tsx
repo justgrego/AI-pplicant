@@ -93,11 +93,17 @@ export default function AudioPlayer({
       console.log("AudioPlayer: Got audio response, creating blob");
       // Play real audio
       const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      // Create a URL from the blob with a specific MIME type for better Safari compatibility
+      const audioUrl = URL.createObjectURL(
+        new Blob([await audioBlob.arrayBuffer()], { type: 'audio/mpeg' })
+      );
       
       if (audioRef.current) {
         console.log("AudioPlayer: Setting up audio element with URL");
-        // Set up audio element
+        // Set up audio element - for Safari, ensure we reset any previous state
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
         audioRef.current.src = audioUrl;
         
         // Set event handlers directly on the element
@@ -125,12 +131,42 @@ export default function AudioPlayer({
           if (onPlaybackEnd) onPlaybackEnd();
         };
         
-        // Play audio
+        // Play audio with Safari-specific handling
         try {
           console.log(`AudioPlayer: Attempting to play audio for message ${messageId}`);
-          await audioRef.current.play();
+          
+          // Check if this is Safari
+          const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+          if (isSafari) {
+            console.log("AudioPlayer: Safari browser detected, using special handling");
+            
+            // For Safari, ensure the audio is fully loaded before attempting to play
+            audioRef.current.load();
+            
+            // Use a promise to wait for canplaythrough event
+            const playPromise = new Promise((resolve, reject) => {
+              const canPlayHandler = () => {
+                audioRef.current?.removeEventListener('canplaythrough', canPlayHandler);
+                audioRef.current?.play().then(resolve).catch(reject);
+              };
+              
+              audioRef.current?.addEventListener('canplaythrough', canPlayHandler, { once: true });
+              
+              // Set a timeout in case the event doesn't fire
+              setTimeout(() => {
+                audioRef.current?.removeEventListener('canplaythrough', canPlayHandler);
+                audioRef.current?.play().then(resolve).catch(reject);
+              }, 1000);
+            });
+            
+            await playPromise;
+          } else {
+            // Standard approach for other browsers
+            await audioRef.current.play();
+          }
         } catch (playError) {
           console.error('AudioPlayer: Error playing audio:', playError);
+          console.error('AudioPlayer: Browser:', navigator.userAgent);
           setError('Failed to play audio. Please try again.');
           if (onPlaybackEnd) onPlaybackEnd();
         }
@@ -186,6 +222,7 @@ export default function AudioPlayer({
           ref={audioRef} 
           preload="auto"
           crossOrigin="anonymous"
+          playsInline
         />
         {error && <p className="text-red-500 mt-2">{error}</p>}
       </div>
@@ -199,6 +236,7 @@ export default function AudioPlayer({
         controls 
         preload="auto"
         crossOrigin="anonymous"
+        playsInline
         className={mockMessage ? "hidden" : "w-full mt-2"} 
       />
       

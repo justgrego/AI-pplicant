@@ -93,6 +93,21 @@ export default function Home() {
     lastAudioMessageIdRef.current = null; // Reset any audio playback state
     
     try {
+      // Prime audio for Safari - creates a silent audio context on user interaction
+      // which allows further audio to play without explicit user interaction
+      const AudioContextClass = window.AudioContext || 
+        ((window as {webkitAudioContext?: typeof AudioContext}).webkitAudioContext);
+      
+      if (AudioContextClass) {
+        const audioContext = new AudioContextClass();
+        const silentBuffer = audioContext.createBuffer(1, 1, 22050);
+        const source = audioContext.createBufferSource();
+        source.buffer = silentBuffer;
+        source.connect(audioContext.destination);
+        source.start();
+        console.log("Audio context primed for Safari");
+      }
+      
       const response = await fetch('/api/interview', {
         method: 'POST',
         headers: {
@@ -495,6 +510,52 @@ export default function Home() {
           }, 500); // Small delay for natural conversation flow
           return;
         }
+      }
+    }
+    
+    // If we don't find any message to play next and the last played message was feedback,
+    // check if we need to manually advance to a follow-up question
+    if (currentAudioIndex !== null && 
+        conversation[currentAudioIndex]?.role === 'feedback' &&
+        currentAudioIndex === conversation.length - 1) {
+      
+      console.log("Feedback message was the last one played, might need to trigger follow-up");
+      
+      // Check if we have feedback data with a follow-up question
+      const feedbackMsg = conversation[currentAudioIndex];
+      if (feedbackMsg?.feedback?.follow_up_question) {
+        console.log("Found follow-up question in feedback, will add it to conversation");
+        
+        // Get the current question
+        const currentQuestion = currentQuestionIndex < questions.length 
+          ? questions[currentQuestionIndex] 
+          : null;
+        
+        // Get safe values with proper type checks
+        const followUpQuestion = feedbackMsg.feedback?.follow_up_question || "";
+        const followUpCategory = feedbackMsg.feedback?.follow_up_category || currentQuestion?.category || "Follow-up";
+        const questionDifficulty = currentQuestion?.difficulty || "Medium";
+        
+        // Increment question counter
+        setCurrentQuestionIndex(prevIndex => prevIndex + 1);
+        
+        // Add the follow-up question with a delay
+        setTimeout(() => {
+          setConversation(prev => [
+            ...prev, 
+            { 
+              role: 'interviewer', 
+              content: followUpQuestion,
+              question: {
+                question: followUpQuestion,
+                category: followUpCategory,
+                difficulty: questionDifficulty
+              },
+              summarizedContent: followUpQuestion,
+              needsAudioPlay: true
+            }
+          ]);
+        }, 1000);
       }
     }
   };
