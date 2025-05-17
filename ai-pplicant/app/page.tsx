@@ -135,31 +135,31 @@ export default function Home() {
     }
   }, [conversation, isSpeaking]);
 
-  // Modify the createAudioFriendlyFeedback function to be more conversational
+  // Create a simpler, more direct feedback formatter that preserves improvement suggestions
   const createAudioFriendlyFeedback = (feedback: FeedbackResponse) => {
+    // Extract core content from feedback
     const score = feedback.score;
+    const strengths = feedback.strengths[0] || '';
+    const improvement = feedback.improvements[0] || '';
     
-    // Extract core messages but more conversationally
-    const extractCore = (text: string) => {
-      if (!text) return '';
-      return text.replace(/^(you |your |i liked how you |it was good that you |)/i, '')
-        .split('.')[0]
-        .trim();
-    };
+    // Direct conversational format
+    let message = feedback.feedback; // Use the original feedback first
     
-    const strength = extractCore(feedback.strengths[0] || '');
-    const improvement = extractCore(feedback.improvements[0] || '');
+    // If the original feedback is too long, create a condensed version
+    if (message.length > 200) {
+      // Create a simpler message that's still conversational but shorter
+      if (interviewMode === 'behavioral' && message.toLowerCase().includes('star')) {
+        // For behavioral with STAR method feedback
+        message = `Here's my feedback. ${strengths}. For improvement, remember to use the STAR method - Situation, Task, Action, Result. ${improvement}. Score: ${score}/5.`;
+      } else {
+        // For general and technical feedback
+        message = `Here's what I think. ${strengths}. To improve, ${improvement}. Your score is ${score}/5.`;
+      }
+    }
     
-    // Create a conversational but concise message
-    let message = '';
-    
-    // Different templates based on score
-    if (score >= 4) {
-      message = `That was a good response! I really liked how ${strength}. One small tip though - try to ${improvement}. Your answer scores a ${score} out of 5.`;
-    } else if (score >= 3) {
-      message = `That's a solid answer. I appreciated that ${strength}. To improve, I'd suggest you ${improvement}. Overall, that's a ${score} out of 5.`;
-    } else {
-      message = `Thanks for your answer. One good point was that ${strength}. To make it stronger, focus on ${improvement}. Your current score is ${score} out of 5, but I know you can improve!`;
+    // Ensure the message isn't too long for audio
+    if (message.length > 300) {
+      message = message.substring(0, 300) + '...';
     }
     
     return message;
@@ -462,7 +462,132 @@ export default function Home() {
     }, 300);
   };
 
-  // Completely revised answer submission function
+  // Force direct question progression after feedback
+  const handleAudioPlaybackEnded = () => {
+    const currentAudioIndex = lastAudioMessageIdRef.current;
+    console.log(`Audio playback ended for message ${currentAudioIndex}, type: ${currentAudioIndex !== null ? conversation[currentAudioIndex]?.role : 'none'}`);
+    
+    // Clear the current message that just finished playing
+    const currentMessage = currentAudioIndex !== null ? conversation[currentAudioIndex] : null;
+    lastAudioMessageIdRef.current = null;
+    setIsSpeaking(false);
+    
+    // Immediately check if a feedback message just finished playing
+    if (currentMessage?.role === 'feedback') {
+      console.log("Feedback audio just finished, triggering next question immediately");
+      setTimeout(() => {
+        addNextQuestion(currentMessage);
+      }, 300);
+      return;
+    }
+    
+    // Find the next message that needs audio playback
+    setTimeout(() => {
+      let nextMessageIndex = findNextAudioMessageIndex();
+      
+      if (nextMessageIndex !== -1) {
+        console.log(`Playing next audio message at index ${nextMessageIndex}`);
+        lastAudioMessageIdRef.current = nextMessageIndex;
+      } else {
+        console.log("No more messages need audio playback");
+      }
+    }, 200);
+  };
+
+  // Helper function to find the next message that needs audio
+  const findNextAudioMessageIndex = () => {
+    for (let i = 0; i < conversation.length; i++) {
+      if (conversation[i].needsAudioPlay) {
+        return i;
+      }
+    }
+    return -1;
+  };
+
+  // Add the next question after feedback
+  const addNextQuestion = (feedbackMessage: ConversationMessage) => {
+    // Don't add another question if we're already processing one
+    if (processingFeedback) {
+      console.log("Already processing feedback, won't add another question");
+      return;
+    }
+    
+    console.log("Adding next question after feedback");
+    
+    // Set processing flag to prevent duplicates
+    setProcessingFeedback(true);
+    
+    // Check if the feedback has a follow-up question
+    if (feedbackMessage?.feedback?.follow_up_question) {
+      const followUpQuestion = feedbackMessage.feedback.follow_up_question;
+      const followUpCategory = feedbackMessage.feedback.follow_up_category || "Follow-up";
+      
+      console.log("Using follow-up question from feedback:", followUpQuestion);
+      
+      // Increment question counter
+      setCurrentQuestionIndex(prevIndex => prevIndex + 1);
+      
+      // Add the follow-up question immediately
+      const followUpId = `follow-up-${Date.now()}`;
+      addMessageToConversation({
+        role: 'interviewer',
+        content: followUpQuestion,
+        question: {
+          question: followUpQuestion,
+          category: followUpCategory,
+          difficulty: "Follow-up"
+        },
+        summarizedContent: followUpQuestion,
+        needsAudioPlay: true,
+        messageId: followUpId,
+        timestamp: Date.now()
+      });
+      
+      console.log("Added follow-up question:", followUpId);
+      
+    } else {
+      // If there's no follow-up question from API, create a default one
+      const currentQuestion = questions[currentQuestionIndex] || 
+        { question: "Tell me more about your experience", category: "Experience", difficulty: "Medium" };
+      
+      // Create a generic follow-up based on the current question's category
+      const followUpQuestion = `Let's explore another aspect. ${
+        interviewMode === 'behavioral' 
+          ? `Can you give me an example of a time when you demonstrated ${currentQuestion.category || "leadership"}?` 
+          : `How would you approach a problem related to ${currentQuestion.category || "system design"}?`
+      }`;
+      
+      console.log("Using generic follow-up question:", followUpQuestion);
+      
+      // Increment question counter
+      setCurrentQuestionIndex(prevIndex => prevIndex + 1);
+      
+      // Add the follow-up question immediately
+      const followUpId = `generic-follow-up-${Date.now()}`;
+      addMessageToConversation({
+        role: 'interviewer',
+        content: followUpQuestion,
+        question: {
+          question: followUpQuestion,
+          category: currentQuestion.category || "Follow-up",
+          difficulty: currentQuestion.difficulty || "Medium"
+        },
+        summarizedContent: followUpQuestion,
+        needsAudioPlay: true,
+        messageId: followUpId,
+        timestamp: Date.now()
+      });
+      
+      console.log("Added generic follow-up question:", followUpId);
+    }
+    
+    // Release the processing flag with a delay
+    setTimeout(() => {
+      setProcessingFeedback(false);
+    }, 1000);
+  };
+
+  // Update the handleSubmitAnswer function for more reliable question flow
   const handleSubmitAnswer = async () => {
     // Prime Safari audio
     primeSafariAudioContext();
@@ -538,9 +663,9 @@ export default function Home() {
       }
 
       const feedback = await feedbackResponse.json();
-      console.log("Received feedback response:", feedback);
+      console.log("Feedback response:", feedback);
 
-      // Create conversational feedback for display and audio
+      // Prepare feedback content for display and audio
       const displayFeedback = feedback.feedback;
       const audioFeedback = createAudioFriendlyFeedback(feedback);
       
@@ -548,88 +673,39 @@ export default function Home() {
 
       // Add feedback to conversation
       const feedbackMessageId = `feedback-for-${candidateMessageId}-${Date.now()}`;
-      const feedbackTimestamp = Date.now() + 100;
       
       addMessageToConversation({
         role: 'feedback',
         content: displayFeedback,
         feedback: feedback,
-        summarizedContent: audioFeedback, // Use the conversational version
+        summarizedContent: audioFeedback,
         needsAudioPlay: true,
         messageId: feedbackMessageId,
-        timestamp: feedbackTimestamp
+        timestamp: Date.now()
       });
       
-      console.log("Added feedback to conversation:", feedbackMessageId);
+      console.log("Added feedback message:", feedbackMessageId);
       
       // Find and play the feedback audio
       setTimeout(() => {
         const feedbackIndex = conversation.findIndex(msg => msg.messageId === feedbackMessageId);
         if (feedbackIndex !== -1) {
-          console.log(`Playing feedback audio at index ${feedbackIndex}`);
-          playFeedbackAudio(feedbackIndex, audioFeedback);
-          
-          // Wait for feedback to finish before proceeding with next question
-          // Safari audio takes roughly (text length * 80ms) to play
-          const estimatedAudioDuration = Math.max(2000, audioFeedback.length * 80);
-          
-          // ALWAYS add a follow-up question after feedback
-          setTimeout(() => {
-            // Get or create a follow-up question
-            let followUpQuestion = '';
-            let followUpCategory = '';
-            
-            // First try to use the API-provided follow-up
-            if (feedback.follow_up_question) {
-              followUpQuestion = feedback.follow_up_question;
-              followUpCategory = feedback.follow_up_category || currentQuestion?.category || "Follow-up";
-              console.log("Using API-provided follow-up question");
-            } else {
-              // If API didn't provide a follow-up, create a generic one based on the current topic
-              followUpQuestion = `Let's continue. Could you elaborate more on ${
-                currentQuestion?.category?.toLowerCase() || "your experience"
-              } with specific examples?`;
-              followUpCategory = currentQuestion?.category || "Follow-up";
-              console.log("Created generic follow-up question");
-            }
-            
-            // Increment question counter
-            setCurrentQuestionIndex(prevIndex => prevIndex + 1);
-            
-            // Add the follow-up question
-            const followUpMessageId = `interviewer-follow-up-for-${feedbackMessageId}-${Date.now()}`;
-            const followUpTimestamp = feedbackTimestamp + estimatedAudioDuration + 1000;
-            
-            addMessageToConversation({
-              role: 'interviewer',
-              content: followUpQuestion,
-              question: {
-                question: followUpQuestion,
-                category: followUpCategory,
-                difficulty: currentQuestion?.difficulty || "Medium"
-              },
-              summarizedContent: followUpQuestion,
-              needsAudioPlay: true,
-              messageId: followUpMessageId,
-              timestamp: followUpTimestamp
-            });
-            
-            console.log("Added follow-up question:", followUpMessageId);
-            
-            // Clear the processing flag
-            setProcessingFeedback(false);
-          }, estimatedAudioDuration);
+          console.log("Playing feedback audio");
+          lastAudioMessageIdRef.current = feedbackIndex;
         } else {
-          console.warn("Could not find feedback message to play audio");
-          setProcessingFeedback(false); // Release the flag
+          console.warn("Could not find feedback message to play");
+          // If we can't find the feedback message, immediately add the next question
+          addNextQuestion({ feedback: feedback } as ConversationMessage);
         }
+        
+        // Clear the submission state
+        setIsSubmittingAnswer(false);
       }, 500);
       
     } catch (error) {
       console.error('Error submitting answer:', error);
       setError('Failed to submit answer. Please try again.');
-      setProcessingFeedback(false); // Release the flag on error
-    } finally {
+      setProcessingFeedback(false);
       setIsSubmittingAnswer(false);
     }
   };
@@ -885,109 +961,6 @@ export default function Home() {
   // Handle audio playback started and ended
   const handleAudioPlaybackStarted = () => {
     setIsSpeaking(true);
-  };
-
-  // Update the handleAudioPlaybackEnded function to better handle follow-up questions
-  const handleAudioPlaybackEnded = () => {
-    const currentAudioIndex = lastAudioMessageIdRef.current;
-    console.log(`Audio playback ended for message ${currentAudioIndex}, message type: ${currentAudioIndex !== null ? conversation[currentAudioIndex]?.role : 'none'}`);
-    setIsSpeaking(false);
-    
-    // Clear the current message that just finished playing
-    lastAudioMessageIdRef.current = null;
-    
-    // Wait a moment before processing next playback to ensure state updates
-    setTimeout(() => {
-      // Check if there are any messages that need audio playback
-      if (conversation.length > 0) {
-        // Get the timestamp of the current message
-        const currentMessageTime = currentAudioIndex !== null && conversation[currentAudioIndex] 
-          ? conversation[currentAudioIndex].timestamp || 0 
-          : 0;
-        
-        // Find the next message in sequence that needs audio playback
-        let nextMessageIndex = -1;
-        let earliestTimestamp = Number.MAX_SAFE_INTEGER;
-        
-        for (let i = 0; i < conversation.length; i++) {
-          const msg = conversation[i];
-          const msgTimestamp = msg.timestamp || 0;
-          
-          if (msg.needsAudioPlay) {
-            // If this message comes after the current one and is earlier than any we've found so far
-            if (msgTimestamp > currentMessageTime && msgTimestamp < earliestTimestamp) {
-              nextMessageIndex = i;
-              earliestTimestamp = msgTimestamp;
-            }
-          }
-        }
-        
-        // If no "next" message, look for any message that needs audio
-        if (nextMessageIndex === -1) {
-          for (let i = 0; i < conversation.length; i++) {
-            if (conversation[i].needsAudioPlay) {
-              nextMessageIndex = i;
-              break;
-            }
-          }
-        }
-        
-        if (nextMessageIndex !== -1) {
-          console.log(`Found message ${nextMessageIndex} that needs audio playback next`);
-          lastAudioMessageIdRef.current = nextMessageIndex;
-          return;
-        }
-        
-        // If we've just finished playing a feedback message, check if we need to trigger a follow-up question
-        if (currentAudioIndex !== null && conversation[currentAudioIndex]?.role === 'feedback') {
-          console.log("Feedback audio finished playing, checking for follow-up question data");
-          const feedbackMsg = conversation[currentAudioIndex];
-          
-          // Check if this feedback has follow-up question data
-          if (feedbackMsg?.feedback?.follow_up_question) {
-            console.log("Found follow-up question data, will add it to conversation");
-            
-            // Get the current question information
-            const currentQuestion = currentQuestionIndex < questions.length 
-              ? questions[currentQuestionIndex] 
-              : null;
-            
-            // Prepare the follow-up question data
-            const followUpQuestion = feedbackMsg.feedback.follow_up_question;
-            const followUpCategory = feedbackMsg.feedback.follow_up_category || 
-                                   currentQuestion?.category || "Follow-up";
-            const questionDifficulty = currentQuestion?.difficulty || "Medium";
-            
-            // Increment question counter
-            setCurrentQuestionIndex(prevIndex => prevIndex + 1);
-            
-            // Add follow-up with a unique ID tied to the feedback message
-            const feedbackId = feedbackMsg.messageId || `feedback-${Date.now()}`;
-            const followUpMessageId = `interviewer-follow-up-for-${feedbackId}-${Date.now()}`;
-            const followUpTimestamp = Date.now() + 1000;
-            
-            // Add the follow-up question
-            addMessageToConversation({
-              role: 'interviewer',
-              content: followUpQuestion,
-              question: {
-                question: followUpQuestion,
-                category: followUpCategory,
-                difficulty: questionDifficulty
-              },
-              summarizedContent: followUpQuestion,
-              needsAudioPlay: true,
-              messageId: followUpMessageId,
-              timestamp: followUpTimestamp
-            });
-            
-            console.log("Added follow-up question from feedback data");
-          }
-        }
-      }
-      
-      console.log("No more messages need audio playback");
-    }, 300);
   };
 
   // Use effect to check microphone permission on component mount

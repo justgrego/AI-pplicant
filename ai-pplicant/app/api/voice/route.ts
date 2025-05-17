@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Use default voice if not provided
-    const selectedVoiceId = voiceId || 'aEO01A4wXwd1O8GPgGlF'; // Custom voice ID
+    const selectedVoiceId = voiceId || 'xctasy8XvGp2cVO9HL9k'; // Custom voice ID
     console.log(`Voice API: Using voice ID ${selectedVoiceId} for ${isFeedback ? 'FEEDBACK' : 'regular'} text: "${text.substring(0, 50)}..."`);
 
     // Optimize text for audio if it's a feedback message

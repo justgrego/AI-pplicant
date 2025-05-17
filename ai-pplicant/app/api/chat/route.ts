@@ -148,94 +148,51 @@ export async function POST(request: NextRequest) {
     // Generate feedback based on interview mode
     let promptContent = '';
     
-    if (generateFollowUp && conversationHistory.length > 0) {
-      // Create a more conversational prompt that emphasizes natural follow-up
-      promptContent = `
-        You are an experienced ${interviewMode} interviewer for ${company || 'a leading company'}.
-        
-        The candidate is interviewing for a position at ${company}.
-        You need to evaluate their latest answer and provide feedback, then generate a natural follow-up question.
-        
-        Here's the recent conversation history:
-        ${conversationHistory.map((msg: {role: string, content: string}) => `${msg.role === 'user' ? 'Candidate' : 'Interviewer'}: ${msg.content}`).join('\n\n')}
-        
-        Latest question: "${question}"
-        Latest answer: "${userAnswer}"
-        
-        Please evaluate the answer considering the following:
-        - How well it addresses the question
-        - ${interviewMode === 'technical' ? 'Technical accuracy and depth' : 'Use of the STAR method and relevance of examples'}
-        - Communication clarity and structure
-        - Specific strengths and areas for improvement
-        
-        Then, create a follow-up question that:
-        1. Naturally builds on their answer
-        2. Probes deeper into areas they could elaborate on
-        3. Helps assess additional skills or competencies
-        4. Feels like a natural conversation, not an interrogation
-        5. Helps them improve their interviewing skills for ${company}
-        
-        Provide your response as a JSON object with:
-        - "feedback": Detailed feedback (2-3 paragraphs)
-        - "strengths": Array of 2-3 specific strengths
-        - "improvements": Array of 2-3 specific areas for improvement
-        - "score": Rating from 1-5
-        - "follow_up": A brief follow-up suggestion (one sentence)
-        - "follow_up_question": The natural next interview question to ask (one sentence)
-        - "follow_up_category": The category this follow-up fits into (e.g., "Technical Design", "Problem Solving", "Teamwork", etc.)
-      `;
-    } else {
-      // Use the original prompt format without follow-up question
-      promptContent = interviewMode === 'technical' 
-        ? `
-          You are an expert technical interviewer for ${company || 'a top tech company'} specializing in computer science positions.
-          You have extensive knowledge of ${company}'s specific interview process and evaluation criteria.
-          
-          The candidate was asked this question: "${question}" 
-          Category: ${category || 'Technical'} 
-          Interview Stage: ${difficulty || 'Technical Round'}
-          
-          The candidate responded: "${userAnswer}"
-          
-          Provide a detailed assessment of their answer that includes:
-          1. A brief overview of what was good about their answer
-          2. Specific areas for improvement with concrete examples, based on what ${company} specifically looks for
-          3. What an optimal answer at ${company} would include that they might have missed
-          4. An honest evaluation of whether this candidate would likely proceed to the next interview stage at ${company}
-          5. A score from 1-5 (where 5 is excellent and would definitely pass this stage at ${company})
-          
-          Format your response as a JSON object with the following fields:
-          - "feedback": Your detailed feedback (about 2-3 paragraphs)
-          - "strengths": Array of specific strengths in the answer (2-3 points)
-          - "improvements": Array of specific areas for improvement (2-3 points)
-          - "score": Numerical score (1-5)
-          - "follow_up": A follow-up question you would ask to dig deeper (what a real ${company} interviewer would ask next)
-        `
-        : `
-          You are an expert behavioral interviewer for ${company || 'a top company'} specializing in assessing candidate fit.
-          You have extensive knowledge of ${company}'s specific culture, values, and hiring criteria.
-          
-          The candidate was asked this behavioral question: "${question}" 
-          Competency Being Assessed: ${category || 'General'} 
-          Interview Stage: ${difficulty || 'Behavioral Round'}
-          
-          The candidate responded: "${userAnswer}"
-          
-          Provide a detailed assessment of their answer that includes:
-          1. How well they used the STAR method (Situation, Task, Action, Result) in their response
-          2. The clarity and relevance of the example they provided
-          3. How well they demonstrated the competency being assessed
-          4. Specific areas for improvement to make their answer more compelling
-          5. A score from 1-5 (where 5 is excellent and would definitely pass this stage at ${company})
-          
-          Format your response as a JSON object with the following fields:
-          - "feedback": Your detailed feedback (about 2-3 paragraphs)
-          - "strengths": Array of specific strengths in the answer (2-3 points)
-          - "improvements": Array of specific areas for improvement (2-3 points)
-          - "score": Numerical score (1-5)
-          - "follow_up": A follow-up question you would ask to dig deeper (what a real ${company} interviewer would ask next)
-        `;
-    }
+    // Create a more conversational prompt for any type of interview with improved feedback guidelines
+    promptContent = `
+      You are an experienced ${interviewMode} interviewer for ${company || 'a leading company'}, helping a candidate prepare.
+      
+      The candidate is practicing for an interview at ${company}.
+      You need to evaluate their answer to a question and provide helpful, conversational feedback, then generate a natural follow-up question.
+      
+      Here's the recent conversation context:
+      ${conversationHistory.map((msg: {role: string, content: string}) => `${msg.role === 'user' ? 'Candidate' : 'Interviewer'}: ${msg.content}`).join('\n\n')}
+      
+      Latest question: "${question}"
+      Latest answer: "${userAnswer}"
+      
+      IMPORTANT GUIDELINES FOR YOUR FEEDBACK:
+      1. Be concise, conversational, and human-like - avoid overly formal language
+      2. Give specific, actionable feedback like a helpful coach would
+      3. Balance positive reinforcement with constructive criticism 
+      4. Use a friendly but professional tone
+      5. If the answer is missing key elements, briefly mention what an ideal answer should include
+      
+      ${interviewMode === 'behavioral' ? `
+      For behavioral questions:
+      - Check if they used the STAR format (Situation, Task, Action, Result)
+      - If they didn't use STAR, point this out directly and give a quick 1-2 sentence example
+      - Focus on storytelling effectiveness and relevance to the role
+      ` : `
+      For technical questions:
+      - Evaluate technical accuracy, problem-solving approach, and clarity
+      - Comment on their communication of complex ideas
+      - Note any missing optimizations or alternative approaches
+      `}
+      
+      Then, create a natural follow-up question that:
+      1. Builds organically from their answer
+      2. Feels like a natural conversation, not an interrogation
+      3. Helps them demonstrate more skills relevant to ${company}
+      
+      Format your response as a JSON object with:
+      - "feedback": Conversational feedback (3-5 sentences at most, direct and helpful)
+      - "strengths": Array of 2-3 specific strengths (short phrases)
+      - "improvements": Array of 2-3 specific actionable improvements (short phrases) 
+      - "score": Rating from 1-5
+      - "follow_up_question": The next question you would naturally ask (one sentence)
+      - "follow_up_category": The category this follow-up fits into
+    `;
 
     try {
       const completion = await openai.chat.completions.create({
@@ -252,8 +209,14 @@ export async function POST(request: NextRequest) {
         console.log("OpenAI feedback response (summarized):", {
           score: feedback.score,
           hasFollowUp: !!feedback.follow_up_question,
-          followUpCategory: feedback.follow_up_category
+          followUpCategory: feedback.follow_up_category,
+          feedbackPreview: feedback.feedback?.substring(0, 50) + '...'
         });
+        
+        // Ensure the follow_up field exists for compatibility
+        if (!feedback.follow_up && feedback.follow_up_question) {
+          feedback.follow_up = feedback.follow_up_question;
+        }
         
         return NextResponse.json(feedback);
       } catch (parseError) {
