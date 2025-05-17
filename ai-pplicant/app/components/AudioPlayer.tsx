@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 interface AudioPlayerProps {
   text: string;
+  messageId: number; // Unique ID for each message
   voiceId?: string;
   autoPlay?: boolean;
   hideControls?: boolean;
@@ -11,8 +12,12 @@ interface AudioPlayerProps {
   onPlaybackEnd?: () => void;
 }
 
+// Keep track of which messages have been played globally
+const playedMessages = new Set<number>();
+
 export default function AudioPlayer({ 
   text, 
+  messageId,
   voiceId, 
   autoPlay = false, 
   hideControls = false,
@@ -22,149 +27,117 @@ export default function AudioPlayer({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mockMessage, setMockMessage] = useState<string | null>(null);
-  const [hasPlayed, setHasPlayed] = useState(false); // Track if this instance has already played audio
   const audioRef = useRef<HTMLAudioElement>(null);
+  
+  // Check if already played
+  const alreadyPlayed = playedMessages.has(messageId);
 
-  // Using useCallback to avoid recreation on each render
-  const playAudio = useCallback(async () => {
-    if (!text || isLoading || hasPlayed) {
-      return; // Prevent repeated playback when already loading or has already played
+  // Play audio once function
+  async function playAudioOnce() {
+    // Don't play if already played or already loading
+    if (alreadyPlayed || isLoading) {
+      return;
     }
 
     try {
       setIsLoading(true);
       setError(null);
-      setMockMessage(null);
-
-      console.log("AudioPlayer: Requesting audio for:", text.substring(0, 30) + "...");
-
+      
+      // Mark as played immediately to prevent double execution
+      playedMessages.add(messageId);
+      
+      // Get the audio from the API
       const response = await fetch('/api/voice', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text,
-          voiceId,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voiceId }),
       });
 
       if (!response.ok) {
         throw new Error('Failed to generate audio');
       }
 
-      // Check if response is JSON (mock response) or binary (audio)
+      // Handle mock responses
       const contentType = response.headers.get('content-type');
-      
       if (contentType && contentType.includes('application/json')) {
-        // This is a mock response for development without API keys
         const jsonData = await response.json();
         if (jsonData.mockData) {
           setMockMessage(jsonData.message || 'Using mock audio in development mode');
           setIsLoading(false);
-          setHasPlayed(true); // Mark as played
           
-          // In mock mode, simulate audio playback events with timeouts
-          if (onPlaybackStart) {
-            onPlaybackStart();
-            // Simulate the audio duration for the mock response
-            const mockDuration = text.length * 50; // ~50ms per character as a rough estimate
-            setTimeout(() => {
-              if (onPlaybackEnd) onPlaybackEnd();
-            }, Math.min(Math.max(mockDuration, 1000), 10000)); // Between 1-10 seconds based on text length
-          }
+          // Simulate playback for mock data
+          if (onPlaybackStart) onPlaybackStart();
+          const mockDuration = Math.min(Math.max(text.length * 50, 1000), 5000); // Cap at 5 seconds
+          setTimeout(() => {
+            if (onPlaybackEnd) onPlaybackEnd();
+          }, mockDuration);
           
           return;
         }
       }
 
-      // It's a real audio response
+      // Play real audio
       const audioBlob = await response.blob();
-      
-      // Create a URL for the blob
       const audioUrl = URL.createObjectURL(audioBlob);
       
-      // Update the audio element with the new source
       if (audioRef.current) {
-        // Set up event listeners for playback start/end
+        // Set up audio element
+        audioRef.current.src = audioUrl;
+        
+        // Set event handlers directly on the element
         if (onPlaybackStart) {
-          audioRef.current.onplay = () => {
-            onPlaybackStart();
-          };
+          audioRef.current.onplay = onPlaybackStart;
         }
         
         if (onPlaybackEnd) {
           audioRef.current.onended = () => {
+            // Clean up URL when done
+            URL.revokeObjectURL(audioUrl);
             onPlaybackEnd();
           };
         }
         
-        audioRef.current.src = audioUrl;
-        setHasPlayed(true); // Mark as played
-        
-        // Play the audio immediately
+        // Play audio
         try {
-          console.log("AudioPlayer: Playing audio");
           await audioRef.current.play();
         } catch (playError) {
           console.error('Error playing audio:', playError);
-          setError('Browser blocked audio playback. Please interact with the page first.');
-          if (onPlaybackEnd) onPlaybackEnd(); // Ensure we still call end when there's an error
+          setError('Failed to play audio. Please try again.');
+          if (onPlaybackEnd) onPlaybackEnd();
         }
       }
-
+      
       setIsLoading(false);
     } catch (err) {
-      console.error('Error playing audio:', err);
-      setError('Error playing audio');
+      console.error('Error fetching audio:', err);
+      setError('Error fetching audio');
       setIsLoading(false);
-      setHasPlayed(true); // Mark as played even on error
-      if (onPlaybackEnd) onPlaybackEnd(); // Ensure we still call end when there's an error
+      if (onPlaybackEnd) onPlaybackEnd();
     }
-  }, [text, voiceId, onPlaybackStart, onPlaybackEnd, isLoading, hasPlayed]);
+  }
 
-  // Play audio immediately on mount if autoPlay is true
+  // Auto-play on mount if needed
   useEffect(() => {
-    if (autoPlay && text && !hasPlayed) {
-      console.log("AudioPlayer: Auto-playing audio for:", text.substring(0, 30) + "...");
-      playAudio();
+    // Only play if not already played and autoPlay is true
+    if (autoPlay && !alreadyPlayed) {
+      playAudioOnce();
     }
     
-    // Clean up on unmount - make sure to end playback state
     return () => {
+      // Clean up on unmount
       if (audioRef.current) {
         audioRef.current.pause();
         if (audioRef.current.src) {
-          URL.revokeObjectURL(audioRef.current.src);
+          try {
+            URL.revokeObjectURL(audioRef.current.src);
+          } catch (e) {
+            // Ignore errors when revoking
+          }
         }
       }
-      if (onPlaybackEnd && !hasPlayed) onPlaybackEnd();
     };
-  }, [autoPlay, text, playAudio, onPlaybackEnd, hasPlayed]);
-
-  // Set up audio element event listeners
-  useEffect(() => {
-    const audioElement = audioRef.current;
-    
-    if (audioElement) {
-      if (onPlaybackStart) {
-        audioElement.onplay = onPlaybackStart;
-      }
-      
-      if (onPlaybackEnd) {
-        audioElement.onended = onPlaybackEnd;
-        audioElement.onpause = onPlaybackEnd;
-      }
-    }
-    
-    return () => {
-      if (audioElement) {
-        audioElement.onplay = null;
-        audioElement.onended = null;
-        audioElement.onpause = null;
-      }
-    };
-  }, [onPlaybackStart, onPlaybackEnd]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);  // Empty dependency array - run once on mount
 
   if (hideControls) {
     return (
@@ -186,13 +159,13 @@ export default function AudioPlayer({
       )}
 
       <button
-        onClick={playAudio}
-        disabled={isLoading || !text || hasPlayed}
-        className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white"
+        onClick={playAudioOnce}
+        disabled={isLoading || alreadyPlayed}
+        className="inline-flex items-center justify-center rounded-md text-sm font-medium focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50 h-10 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white"
       >
         {isLoading ? (
           <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2"></div>
-        ) : hasPlayed ? (
+        ) : alreadyPlayed ? (
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="20"
@@ -226,7 +199,7 @@ export default function AudioPlayer({
             <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
           </svg>
         )}
-        {isLoading ? 'Generating Audio...' : hasPlayed ? 'Played' : 'Listen'}
+        {isLoading ? 'Loading...' : alreadyPlayed ? 'Played' : 'Listen'}
       </button>
       {error && <p className="text-red-500 mt-2">{error}</p>}
     </div>

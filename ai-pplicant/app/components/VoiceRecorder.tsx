@@ -88,6 +88,11 @@ export default function VoiceRecorder({
       console.log("VoiceRecorder: SpeechRecognition not supported, using fallback");
       setUseFallbackRecorder(true);
     }
+    
+    // Clean up on unmount
+    return () => {
+      stopRecognition();
+    };
   }, []);
   
   // Setup audio visualization when recording
@@ -141,6 +146,7 @@ export default function VoiceRecorder({
   
   // Cleanup audio context and stream
   const cleanupAudio = useCallback(() => {
+    // Close AudioContext if open
     if (audioContextRef.current) {
       if (audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close().catch(console.error);
@@ -148,23 +154,62 @@ export default function VoiceRecorder({
       audioContextRef.current = null;
     }
     
+    // Stop all media tracks
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach(track => {
+        if (track.readyState === 'live') {
+          track.stop();
+        }
+      });
       streamRef.current = null;
     }
     
+    // Clear analyzer reference
     analyserRef.current = null;
+    
+    // Reset audio level
     setAudioLevel(0);
     
-    // Also revoke any test audio URLs
-    if (testAudioUrl) {
-      URL.revokeObjectURL(testAudioUrl);
-      setTestAudioUrl(null);
+    // Revoke any test audio URLs
+    if (audioTestRef.current && audioTestRef.current.src) {
+      URL.revokeObjectURL(audioTestRef.current.src);
     }
-  }, [testAudioUrl]);
+  }, []);
+  
+  // Stop speech recognition
+  const stopRecognition = useCallback(() => {
+    if (!recording) return; // Don't do anything if not recording
+    
+    console.log("VoiceRecorder: Stopping recognition");
+    
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      } catch (error) {
+        console.error("VoiceRecorder: Error stopping recognition", error);
+      }
+    }
+    
+    // Also stop media recorder if it's active
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (error) {
+        console.error("VoiceRecorder: Error stopping media recorder", error);
+      }
+      mediaRecorderRef.current = null;
+    }
+    
+    // Clean up audio resources
+    cleanupAudio();
+    setRecording(false);
+  }, [cleanupAudio, recording]);
   
   // Start media recording (fallback) - memoized with useCallback
   const startMediaRecording = useCallback(async () => {
+    if (recording) return; // Don't start if already recording
+    
     try {
       console.log("VoiceRecorder: Starting media recording fallback");
       
@@ -262,10 +307,12 @@ export default function VoiceRecorder({
       setError("Failed to access microphone or start recording");
       setRecording(false);
     }
-  }, [onTranscription, setupAudioVisualization, cleanupAudio]);
+  }, [onTranscription, setupAudioVisualization, cleanupAudio, recording]);
   
   // Start speech recognition - memoized with useCallback
   const startRecognition = useCallback(() => {
+    if (recording) return; // Don't start if already recording
+    
     try {
       console.log("VoiceRecorder: Starting recognition");
       
@@ -318,21 +365,13 @@ export default function VoiceRecorder({
       recognition.onend = () => {
         console.log("VoiceRecorder: Recognition ended, transcript:", transcript);
         
-        // Auto-stop after silence if enabled
-        if (autoStopAfterSilence) {
-          // If we have a transcript, submit it
-          if (transcript) {
-            onTranscription(transcript);
-          }
-        } else {
-          // If we have a transcript, submit it
-          if (transcript) {
-            onTranscription(transcript);
-          }
+        // Submit the transcript if available
+        if (transcript) {
+          onTranscription(transcript);
         }
         
-        // If still listening, restart recognition
-        if (isListening) {
+        // If still listening but not recording, restart recognition
+        if (isListening && recording) {
           try {
             recognition.start();
             console.log("VoiceRecorder: Recognition restarted");
@@ -341,9 +380,6 @@ export default function VoiceRecorder({
           }
         } else {
           cleanupAudio();
-        }
-        
-        if (!isListening) {
           setRecording(false);
         }
       };
@@ -376,58 +412,22 @@ export default function VoiceRecorder({
       setUseFallbackRecorder(true);
       startMediaRecording();
     }
-  }, [autoStopAfterSilence, isListening, onTranscription, transcript, setupAudioVisualization, cleanupAudio, startMediaRecording]);
-  
-  // Stop speech recognition
-  const stopRecognition = useCallback(() => {
-    console.log("VoiceRecorder: Stopping recognition");
-    
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-        console.log("VoiceRecorder: Recognition stopped");
-      } catch (error) {
-        console.error("VoiceRecorder: Error stopping recognition", error);
-      }
-      
-      // Clear reference
-      recognitionRef.current = null;
-    }
-    
-    // Also stop media recorder if it's active
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      try {
-        mediaRecorderRef.current.stop();
-        console.log("VoiceRecorder: Media recorder stopped");
-      } catch (error) {
-        console.error("VoiceRecorder: Error stopping media recorder", error);
-      }
-    }
-    
-    // Clean up audio resources
-    cleanupAudio();
-    setRecording(false);
-  }, [cleanupAudio]);
+  }, [autoStopAfterSilence, isListening, onTranscription, transcript, setupAudioVisualization, cleanupAudio, startMediaRecording, recording]);
   
   // Handle changes to the isListening prop
   useEffect(() => {
     console.log("VoiceRecorder: isListening changed to", isListening);
     
-    if (isListening) {
+    if (isListening && !recording) {
       if (useFallbackRecorder) {
         startMediaRecording();
       } else {
         startRecognition();
       }
-    } else {
+    } else if (!isListening && recording) {
       stopRecognition();
     }
-    
-    // Clean up on unmount
-    return () => {
-      stopRecognition();
-    };
-  }, [isListening, useFallbackRecorder, startRecognition, startMediaRecording, stopRecognition]); 
+  }, [isListening, useFallbackRecorder, startRecognition, startMediaRecording, stopRecognition, recording]); 
   
   // Enhanced UI with audio visualization and test playback
   return (

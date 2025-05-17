@@ -45,23 +45,22 @@ export default function Home() {
   const [interviewMode, setInterviewMode] = useState<InterviewMode>('technical');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [micPermissionState, setMicPermissionState] = useState<'granted' | 'denied' | 'prompt' | 'unknown'>('unknown');
-  const [audioPlayed, setAudioPlayed] = useState<Record<number, boolean>>({});
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const lastAudioMessageIdRef = useRef<number | null>(null);
 
-  // Scroll to bottom of conversation when new messages are added
+  // Scroll to bottom whenever conversation changes
   useEffect(() => {
+    // Find the last message that needs audio playback
+    if (conversation.length > 0) {
+      const lastIndex = conversation.length - 1;
+      if (conversation[lastIndex].needsAudioPlay) {
+        lastAudioMessageIdRef.current = lastIndex;
+      }
+    }
+    
+    // Scroll to bottom
     if (conversationEndRef.current) {
       conversationEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-
-    // Play audio for the last message that needs audio
-    const lastMessageIndex = conversation.findIndex((msg, idx) => 
-      msg.needsAudioPlay && (!lastAudioMessageIdRef.current || idx > lastAudioMessageIdRef.current)
-    );
-
-    if (lastMessageIndex !== -1) {
-      lastAudioMessageIdRef.current = lastMessageIndex;
     }
   }, [conversation]);
 
@@ -236,15 +235,15 @@ export default function Home() {
 
   // Request microphone permission before starting recording
   const handleVoiceButtonClick = async () => {
-    // Don't activate recording if AI is currently speaking
-    if (isSpeaking) {
-      setError("Please wait for the interviewer to finish speaking.");
+    // If already recording, stop it
+    if (listeningForVoice) {
+      setListeningForVoice(false);
       return;
     }
     
-    if (listeningForVoice) {
-      // Stop listening
-      setListeningForVoice(false);
+    // Don't activate recording if AI is currently speaking
+    if (isSpeaking) {
+      setError("Please wait for the interviewer to finish speaking.");
       return;
     }
 
@@ -287,21 +286,18 @@ export default function Home() {
   // Handle changes to the conversation array and trigger audio playback for the newest messages
   useEffect(() => {
     // Find the last message that needs audio playback
-    const messageToPlay = conversation.findIndex((msg, idx) => 
-      msg.needsAudioPlay && !audioPlayed[idx] && 
-      (lastAudioMessageIdRef.current === null || idx > lastAudioMessageIdRef.current)
-    );
-    
-    if (messageToPlay !== -1) {
-      console.log("Playing audio for message:", messageToPlay);
-      lastAudioMessageIdRef.current = messageToPlay;
+    if (conversation.length > 0) {
+      const lastIndex = conversation.length - 1;
+      if (conversation[lastIndex].needsAudioPlay) {
+        lastAudioMessageIdRef.current = lastIndex;
+      }
     }
     
     // Scroll to bottom
     if (conversationEndRef.current) {
       conversationEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [conversation, audioPlayed]);
+  }, [conversation]);
 
   const handleRestart = () => {
     setStarted(false);
@@ -316,22 +312,10 @@ export default function Home() {
   // Handle audio playback started and ended
   const handleAudioPlaybackStarted = () => {
     setIsSpeaking(true);
-    // Automatically stop any ongoing recording when audio starts playing
-    if (listeningForVoice) {
-      setListeningForVoice(false);
-    }
   };
 
   const handleAudioPlaybackEnded = () => {
     setIsSpeaking(false);
-    
-    // Mark the current audio message as played
-    if (lastAudioMessageIdRef.current !== null) {
-      setAudioPlayed(prev => ({
-        ...prev,
-        [lastAudioMessageIdRef.current!]: true
-      }));
-    }
   };
 
   // Use effect to check microphone permission on component mount
@@ -672,11 +656,11 @@ export default function Home() {
                             {index === lastAudioMessageIdRef.current && (
                               <AudioPlayer 
                                 text={message.summarizedContent || message.content}
+                                messageId={index}
                                 autoPlay={true}
                                 hideControls={true}
                                 onPlaybackStart={handleAudioPlaybackStarted}
                                 onPlaybackEnd={handleAudioPlaybackEnded}
-                                key={`audio-${index}`}
                               />
                             )}
                           </div>
@@ -745,11 +729,11 @@ export default function Home() {
                             {index === lastAudioMessageIdRef.current && (
                               <AudioPlayer 
                                 text={message.summarizedContent || message.content}
+                                messageId={index}
                                 autoPlay={true}
                                 hideControls={true}
                                 onPlaybackStart={handleAudioPlaybackStarted}
                                 onPlaybackEnd={handleAudioPlaybackEnded}
-                                key={`audio-${index}`}
                               />
                             )}
                           </div>
@@ -783,18 +767,26 @@ export default function Home() {
               {/* Text input fallback */}
               {!listeningForVoice && currentQuestionIndex < questions.length && (
                 <div className="bg-gray-800/30 p-4 rounded-xl shadow-lg border border-gray-700/50 backdrop-blur-sm">
+                  <h3 className="text-lg font-medium mb-2 text-white">Your Answer</h3>
+                  <p className="text-sm text-gray-300 mb-4">
+                    {isSpeaking ? 
+                      "Please wait for the interviewer to finish speaking..." : 
+                      "Type your answer below or click 'Start Speaking' to use voice input."
+                    }
+                  </p>
                   <textarea
                     value={userAnswer}
                     onChange={(e) => setUserAnswer(e.target.value)}
                     className="w-full p-3 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-900/70 text-white"
-                    rows={3}
-                    placeholder="Type your answer here or click 'Start Speaking' to use voice..."
+                    rows={5}
+                    placeholder="Type your answer here..."
+                    disabled={isSpeaking}
                   />
                   
                   <div className="mt-4 flex justify-end">
                     <button
                       onClick={handleSubmitAnswer}
-                      disabled={isSubmittingAnswer || !userAnswer.trim()}
+                      disabled={isSubmittingAnswer || !userAnswer.trim() || isSpeaking}
                       className="py-2 px-6 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg disabled:opacity-50 shadow-lg"
                     >
                       {isSubmittingAnswer ? 'Submitting...' : 'Submit Answer'}
