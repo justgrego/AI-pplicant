@@ -481,17 +481,17 @@ export default function Home() {
       return;
     }
     
-    // Find the next message that needs audio playback
-    setTimeout(() => {
-      let nextMessageIndex = findNextAudioMessageIndex();
-      
-      if (nextMessageIndex !== -1) {
-        console.log(`Playing next audio message at index ${nextMessageIndex}`);
-        lastAudioMessageIdRef.current = nextMessageIndex;
-      } else {
-        console.log("No more messages need audio playback");
-      }
-    }, 200);
+      // Find the next message that needs audio playback
+  setTimeout(() => {
+    const nextMessageIndex = findNextAudioMessageIndex();
+    
+    if (nextMessageIndex !== -1) {
+      console.log(`Playing next audio message at index ${nextMessageIndex}`);
+      lastAudioMessageIdRef.current = nextMessageIndex;
+    } else {
+      console.log("No more messages need audio playback");
+    }
+  }, 200);
   };
 
   // Helper function to find the next message that needs audio
