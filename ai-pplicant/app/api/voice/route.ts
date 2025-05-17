@@ -11,6 +11,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if API key is missing (development mode without .env.local)
+    if (!process.env.ELEVENLABS_API_KEY) {
+      console.warn('ELEVENLABS_API_KEY is missing. Using mock audio response.');
+      
+      // Return a simple response for development
+      return NextResponse.json(
+        { message: 'Mock audio response - API key not configured locally. Add keys to your .env.local file or use the deployed version.' },
+        { status: 200 }
+      );
+    }
+
     // Use default voice if not provided
     const selectedVoiceId = voiceId || 'CYw3kZ02Hs0563khs1Fj'; // Default voice: Jessica
 
@@ -22,7 +33,7 @@ export async function POST(request: NextRequest) {
         headers: {
           'Accept': 'audio/mpeg',
           'Content-Type': 'application/json',
-          'xi-api-key': process.env.ELEVENLABS_API_KEY || '',
+          'xi-api-key': process.env.ELEVENLABS_API_KEY,
         },
         body: JSON.stringify({
           text,

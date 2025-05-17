@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from 'react';
-import Link from 'next/link';
 import AudioPlayer from './components/AudioPlayer';
 
 export default function Home() {

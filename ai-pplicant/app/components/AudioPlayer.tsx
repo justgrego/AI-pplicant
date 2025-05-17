@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
 interface AudioPlayerProps {
   text: string;
@@ -13,7 +13,7 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false }: AudioPl
   const [error, setError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  const playAudio = async () => {
+  const playAudio = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -51,13 +51,13 @@ export default function AudioPlayer({ text, voiceId, autoPlay = false }: AudioPl
       setError('Error playing audio');
       setIsLoading(false);
     }
-  };
+  }, [text, voiceId]);
 
   useEffect(() => {
     if (autoPlay && text) {
       playAudio();
     }
-  }, [text, autoPlay]);
+  }, [text, autoPlay, playAudio]);
 
   return (
     <div className="mt-2">
