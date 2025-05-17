@@ -480,4 +480,142 @@ export default function Home() {
                           <div className="bg-gray-700/40 p-3 rounded-lg rounded-tl-none">
                             <div className="flex justify-between items-start mb-1">
                               <span className="font-medium text-blue-300">
-                                Interviewer {message.question && `(${message.question.category}${message.question.difficulty ? `, ${message.question.difficulty}`
+                                Interviewer {message.question && `(${message.question.category}${message.question.difficulty ? `, ${message.question.difficulty}` : ''})`}
+                              </span>
+                            </div>
+                            <p className="text-white">{message.content}</p>
+                            
+                            {index === lastAudioMessageIdRef.current && (
+                              <AudioPlayer 
+                                text={message.summarizedContent || message.content}
+                                autoPlay={true}
+                                hideControls={true}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {message.role === 'candidate' && (
+                      <div className="flex space-x-3 items-start justify-end">
+                        <div className="flex-1">
+                          <div className="bg-blue-900/30 p-3 rounded-lg rounded-tr-none border border-blue-700/30">
+                            <div className="flex justify-between items-start mb-1">
+                              <span className="font-medium text-blue-300">You</span>
+                            </div>
+                            <p>{message.content}</p>
+                          </div>
+                        </div>
+                        <div className="w-9 h-9 rounded-full bg-green-600 flex items-center justify-center flex-shrink-0">
+                          <span className="text-white font-bold">Y</span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {message.role === 'feedback' && message.feedback && (
+                      <div className="flex space-x-3 items-start">
+                        <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center flex-shrink-0">
+                          <span className="text-white font-bold">F</span>
+                        </div>
+                        <div className="flex-1">
+                          <div className="bg-indigo-900/20 p-3 rounded-lg rounded-tl-none border border-indigo-800/20">
+                            <div className="flex justify-between items-start mb-1">
+                              <span className="font-medium text-indigo-300">Feedback</span>
+                              <span className="px-2 py-0.5 bg-indigo-700/70 rounded-md text-xs ml-2">
+                                Score: {message.feedback.score}/5
+                              </span>
+                            </div>
+                            <p className="mb-2">{message.feedback.feedback}</p>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                              <div>
+                                <h4 className="text-sm font-medium mb-1 text-green-300">Strengths:</h4>
+                                <ul className="list-disc pl-5 text-sm text-gray-200">
+                                  {message.feedback.strengths.map((strength, idx) => (
+                                    <li key={idx}>{strength}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-medium mb-1 text-yellow-300">Areas for Improvement:</h4>
+                                <ul className="list-disc pl-5 text-sm text-gray-200">
+                                  {message.feedback.improvements.map((improvement, idx) => (
+                                    <li key={idx}>{improvement}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                            
+                            {message.feedback.follow_up && (
+                              <div className="mt-3 pt-2 border-t border-indigo-700/30">
+                                <p className="text-sm italic">
+                                  <span className="font-semibold">Follow-up question:</span> {message.feedback.follow_up}
+                                </p>
+                              </div>
+                            )}
+                            
+                            {index === lastAudioMessageIdRef.current && (
+                              <AudioPlayer 
+                                text={message.summarizedContent || message.content}
+                                autoPlay={true}
+                                hideControls={true}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <div ref={conversationEndRef} />
+                
+                {/* Voice recording indicator */}
+                {listeningForVoice && (
+                  <div className="fixed bottom-4 right-4 bg-red-600 py-2 px-4 rounded-full shadow-lg text-white animate-pulse">
+                    <div className="flex items-center">
+                      <div className="mr-2 w-2 h-2 bg-white rounded-full animate-ping"></div>
+                      Recording...
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Hidden recorder component */}
+              <div className={listeningForVoice ? "block" : "hidden"}>
+                <VoiceRecorder 
+                  onTranscription={handleVoiceInput} 
+                  isListening={listeningForVoice}
+                  autoStopAfterSilence={false} // Never auto-stop
+                />
+              </div>
+              
+              {/* Text input fallback */}
+              {!listeningForVoice && currentQuestionIndex < questions.length && (
+                <div className="bg-gray-800/30 p-4 rounded-xl shadow-lg border border-gray-700/50 backdrop-blur-sm">
+                  <textarea
+                    value={userAnswer}
+                    onChange={(e) => setUserAnswer(e.target.value)}
+                    className="w-full p-3 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-900/70 text-white"
+                    rows={3}
+                    placeholder="Type your answer here or click 'Start Speaking' to use voice..."
+                  />
+                  
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      onClick={handleSubmitAnswer}
+                      disabled={isSubmittingAnswer || !userAnswer.trim()}
+                      className="py-2 px-6 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg disabled:opacity-50 shadow-lg"
+                    >
+                      {isSubmittingAnswer ? 'Submitting...' : 'Submit Answer'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
