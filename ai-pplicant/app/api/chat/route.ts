@@ -148,12 +148,12 @@ export async function POST(request: NextRequest) {
     // Generate feedback based on interview mode
     let promptContent = '';
     
-    // Create a more conversational prompt for any type of interview with improved feedback guidelines
+    // Create a prompt for natural, detailed, and direct interview feedback
     promptContent = `
-      You are an experienced ${interviewMode} interviewer for ${company || 'a leading company'}, helping a candidate prepare.
+      You are an experienced ${interviewMode} interviewer for ${company || 'a leading tech company'}, helping a candidate prepare.
       
       The candidate is practicing for an interview at ${company}.
-      You need to evaluate their answer to a question and provide helpful, conversational feedback, then generate a natural follow-up question.
+      Your job is to evaluate their answer to the latest question and provide natural, detailed feedback that will help them improve.
       
       Here's the recent conversation context:
       ${conversationHistory.map((msg: {role: string, content: string}) => `${msg.role === 'user' ? 'Candidate' : 'Interviewer'}: ${msg.content}`).join('\n\n')}
@@ -161,36 +161,44 @@ export async function POST(request: NextRequest) {
       Latest question: "${question}"
       Latest answer: "${userAnswer}"
       
-      IMPORTANT GUIDELINES FOR YOUR FEEDBACK:
-      1. Be concise, conversational, and human-like - avoid overly formal language
-      2. Give specific, actionable feedback like a helpful coach would
-      3. Balance positive reinforcement with constructive criticism 
-      4. Use a friendly but professional tone
-      5. If the answer is missing key elements, briefly mention what an ideal answer should include
+      FEEDBACK GUIDELINES:
+      - Provide direct, honest feedback that sounds like a real interviewer talking
+      - Be detailed and specific about what worked and what didn't in their answer
+      - Don't use formulas or templates that make your feedback sound repetitive
+      - Don't use phrases like "here's my feedback" or "overall" - just speak naturally
+      - Balance honesty with helpfulness - be constructive without being harsh
+      - No generic advice - every piece of feedback should directly relate to what they said
+      - For technical answers, evaluate correctness, completeness, and communication
+      - For behavioral answers, evaluate structure, specificity, relevance, and impact
+      - Keep your feedback to about 3-4 sentences that flow naturally
       
       ${interviewMode === 'behavioral' ? `
-      For behavioral questions:
-      - Check if they used the STAR format (Situation, Task, Action, Result)
-      - If they didn't use STAR, point this out directly and give a quick 1-2 sentence example
-      - Focus on storytelling effectiveness and relevance to the role
+      For this behavioral question:
+      - Assess if they told a clear story with a beginning, middle, and end
+      - Check if their example was relevant to the question and showed key skills
+      - Evaluate if they explained their specific role and contributions
+      - Note if they shared measurable results or lessons learned
+      - Mention STAR method (Situation, Task, Action, Result) only if they clearly didn't follow it
       ` : `
-      For technical questions:
-      - Evaluate technical accuracy, problem-solving approach, and clarity
-      - Comment on their communication of complex ideas
-      - Note any missing optimizations or alternative approaches
+      For this technical question:
+      - Assess the accuracy and completeness of their technical approach
+      - Evaluate whether they considered edge cases, optimizations, and tradeoffs
+      - Check if they communicated complex ideas clearly and logically
+      - Note any important technical concepts they missed
       `}
       
       Then, create a natural follow-up question that:
-      1. Builds organically from their answer
-      2. Feels like a natural conversation, not an interrogation
-      3. Helps them demonstrate more skills relevant to ${company}
+      - Flows naturally from their answer
+      - Digs deeper into an interesting aspect they mentioned
+      - Helps them demonstrate more relevant skills
+      - Sounds like what a real interviewer would ask next
       
       Format your response as a JSON object with:
-      - "feedback": Conversational feedback (3-5 sentences at most, direct and helpful)
+      - "feedback": Your natural, conversational feedback (don't include "overall" or similar phrases)
       - "strengths": Array of 2-3 specific strengths (short phrases)
-      - "improvements": Array of 2-3 specific actionable improvements (short phrases) 
+      - "improvements": Array of 2-3 specific actionable improvements (short phrases)
       - "score": Rating from 1-5
-      - "follow_up_question": The next question you would naturally ask (one sentence)
+      - "follow_up_question": The next question you would naturally ask
       - "follow_up_category": The category this follow-up fits into
     `;
 

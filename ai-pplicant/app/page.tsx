@@ -135,96 +135,35 @@ export default function Home() {
     }
   }, [conversation, isSpeaking]);
 
-  // Create brutally honest but human feedback specifically for the current question
+  // Use GPT's natural feedback directly with minimal processing
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const createAudioFriendlyFeedback = (feedback: FeedbackResponse, questionText?: string, userAnswer?: string) => {
-    // Extract feedback elements
-    const strengths = feedback.strengths || [];
-    const improvements = feedback.improvements || [];
+    // Just use the original feedback from GPT with minimal processing
+    let message = feedback.feedback || '';
     
-    // Get the original feedback text for reference
-    const originalFeedback = feedback.feedback;
-    
-    // Create a direct, brutally honest feedback message
-    let message = '';
-    
-    // Get the actual question being answered - this is critical to fix the feedback context issue
-    const questionContext = questionText || 
-                           (currentQuestionIndex < questions.length ? 
-                            questions[currentQuestionIndex].question : 
-                            "this question");
-    
-    // For context, reference the company expectations
-    const companyReference = company ? `${company}` : 'Companies like this';
-    
-    // Start with a brief question reference to fix the context issue
-    message = `About "${questionContext.substring(0, 40)}${questionContext.length > 40 ? '...' : ''}": `;
-    
-    // Add a brutally honest assessment based on feedback score
-    if (feedback.score <= 2) {
-      // Poor response
-      message += `That wouldn't cut it in a real interview. `;
-    } else if (feedback.score <= 3) {
-      // Mediocre response
-      message += `That's barely acceptable. `;
-    }
-    
-    // Acknowledge strength but be direct
-    if (strengths.length > 0) {
-      // Make the strength acknowledgment more human but direct
-      message += `${strengths[0]}. `;
-    }
-    
-    // Add direct, no-nonsense improvement advice
-    if (improvements.length > 0) {
-      // Make improvement advice more brutally honest but helpful
-      const improvement = improvements[0]
-        .replace(/^you should /i, '')
-        .replace(/^consider /i, '')
-        .replace(/^try to /i, '');
+    // Make sure we have some content
+    if (!message || message.trim().length === 0) {
+      // Fallback only if GPT feedback is empty
+      const strengths = feedback.strengths && feedback.strengths.length > 0 ? 
+        feedback.strengths[0] : 'Your approach had some merit';
       
-      // Add blunt but useful advice
-      message += `${companyReference} expects you to ${improvement}. `;
+      const improvements = feedback.improvements && feedback.improvements.length > 0 ? 
+        feedback.improvements[0] : 'focus on being more specific';
       
-      // Add a second improvement if available - be direct
-      if (improvements.length > 1) {
-        const secondImprovement = improvements[1]
-          .replace(/^you should /i, '')
-          .replace(/^consider /i, '')
-          .replace(/^try to /i, '');
-        
-        message += `Frankly, you also need to ${secondImprovement}. `;
-      }
-    }
-    
-    // Add specific type-based advice with a direct tone
-    if (interviewMode === 'behavioral') {
-      // For behavioral questions, add STAR method reminder if needed
-      if (originalFeedback.toLowerCase().includes('star') && 
-          !message.toLowerCase().includes('star method')) {
-        message += 'You must use the STAR method: situation, task, action, results. No excuses. ';
-      }
-    } else if (interviewMode === 'technical') {
-      // For technical questions, add specific technical advice
-      if (!message.toLowerCase().includes('complexity') && 
-          !message.toLowerCase().includes('algorithm') &&
-          originalFeedback.toLowerCase().includes('complexity')) {
-        message += 'Any decent engineer discusses time and space complexity. ';
-      }
-    }
-    
-    // Add human touches based on the answer if available
-    if (userAnswer) {
-      if (userAnswer.length < 100 && feedback.score < 4) {
-        message += "Your answer was too brief. Expand your thoughts. ";
-      } else if (userAnswer.length > 500 && !message.includes('concise')) {
-        message += "You're being too verbose. Be more concise. ";
-      }
+      message = `${strengths}. To improve, ${improvements}.`;
     }
     
     // Format the message for better speech synthesis
     message = message.trim();
     message = message.replace(/\.\s+/g, '. '); // Ensure proper spacing after periods
     message = message.replace(/\,\s+/g, ', '); // Ensure proper spacing after commas
+    
+    // Ensure we're not repeating "STAR method" if it appears multiple times
+    if (interviewMode === 'behavioral' && 
+        (message.toLowerCase().match(/star method/g) || []).length > 1) {
+      message = message.replace(/\b(remember to use the STAR method|use the STAR method|follow the STAR method)\b/gi, 
+        match => match.toLowerCase() === message.toLowerCase() ? match : 'apply this technique');
+    }
     
     // Limit length while preserving complete sentences
     if (message.length > 1000) {
