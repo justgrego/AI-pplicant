@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
 // Define type for SpeechRecognition
 interface SpeechRecognitionEvent extends Event {
@@ -54,8 +54,8 @@ export default function VoiceRecorder({
   const audioChunksRef = useRef<Blob[]>([]);
   const [useFallbackRecorder, setUseFallbackRecorder] = useState(false);
   
-  // Start speech recognition
-  const startRecognition = () => {
+  // Start speech recognition - memoized with useCallback
+  const startRecognition = useCallback(() => {
     try {
       console.log("VoiceRecorder: Starting recognition");
       
@@ -146,10 +146,10 @@ export default function VoiceRecorder({
       setUseFallbackRecorder(true);
       startMediaRecording();
     }
-  };
+  }, [autoStopAfterSilence, isListening, onTranscription, transcript]);
   
-  // Start media recording (fallback)
-  const startMediaRecording = async () => {
+  // Start media recording (fallback) - memoized with useCallback
+  const startMediaRecording = useCallback(async () => {
     try {
       console.log("VoiceRecorder: Starting media recording fallback");
       
@@ -225,10 +225,10 @@ export default function VoiceRecorder({
       setError("Failed to access microphone or start recording");
       setRecording(false);
     }
-  };
+  }, [onTranscription]);
   
   // Stop speech recognition
-  const stopRecognition = () => {
+  const stopRecognition = useCallback(() => {
     console.log("VoiceRecorder: Stopping recognition");
     
     if (recognitionRef.current) {
@@ -254,7 +254,7 @@ export default function VoiceRecorder({
     }
     
     setRecording(false);
-  };
+  }, []);
   
   // Handle changes to the isListening prop
   useEffect(() => {
@@ -274,7 +274,7 @@ export default function VoiceRecorder({
     return () => {
       stopRecognition();
     };
-  }, [isListening, useFallbackRecorder]); 
+  }, [isListening, useFallbackRecorder, startRecognition, startMediaRecording, stopRecognition]); 
   
   // Simple UI
   return (
