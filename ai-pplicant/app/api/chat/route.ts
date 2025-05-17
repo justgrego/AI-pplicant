@@ -41,6 +41,8 @@ function getMockFeedback(userAnswer: string, question: string, category: string,
     }
   }
   
+  let feedbackResponse;
+  
   if (interviewMode === 'technical') {
     // For technical interviews
     // Check for keywords that might indicate a good answer
@@ -53,7 +55,7 @@ function getMockFeedback(userAnswer: string, question: string, category: string,
       score = Math.min(5, score + 1);
     }
     
-    return {
+    feedbackResponse = {
       feedback: `Your answer to the ${difficulty} question about ${category} shows some understanding of the core concepts. You provided ${answerLength < 100 ? 'a brief' : 'a detailed'} explanation and touched on some important points. For technical interviews at ${company || 'top companies'}, you'll want to ensure you provide concrete examples and discuss both theoretical concepts and practical implementations.`,
       strengths: [
         "Attempted to address the main question",
@@ -82,7 +84,7 @@ function getMockFeedback(userAnswer: string, question: string, category: string,
       score = Math.min(5, score + 1);
     }
     
-    return {
+    feedbackResponse = {
       feedback: `Your response to the ${category} question demonstrates some understanding of the STAR method. You provided ${answerLength < 150 ? 'a brief outline' : 'details'} of your experience, but could enhance your answer by clearly structuring it around the Situation, Task, Action, and Result framework. For behavioral interviews at ${company}, it's important to provide specific, measurable outcomes from your experiences.`,
       strengths: [
         "Shared a relevant personal experience",
@@ -100,6 +102,14 @@ function getMockFeedback(userAnswer: string, question: string, category: string,
       follow_up_category: follow_up_category
     };
   }
+  
+  console.log("Mock feedback response (summarized):", {
+    score: feedbackResponse.score,
+    hasFollowUp: !!feedbackResponse.follow_up_question,
+    followUpCategory: feedbackResponse.follow_up_category
+  });
+  
+  return feedbackResponse;
 }
 
 export async function POST(request: NextRequest) {
@@ -126,9 +136,8 @@ export async function POST(request: NextRequest) {
       console.log('OpenAI API key missing - using mock feedback');
       
       // Return mock feedback when no API key is available
-      return NextResponse.json(
-        getMockFeedback(userAnswer, question, category, company, difficulty, interviewMode, generateFollowUp)
-      );
+      const mockFeedback = getMockFeedback(userAnswer, question, category, company, difficulty, interviewMode, generateFollowUp);
+      return NextResponse.json(mockFeedback);
     }
 
     // Initialize OpenAI
@@ -239,6 +248,12 @@ export async function POST(request: NextRequest) {
       try {
         const responseContent = completion.choices[0]?.message?.content || '{}';
         const feedback = JSON.parse(responseContent);
+        
+        console.log("OpenAI feedback response (summarized):", {
+          score: feedback.score,
+          hasFollowUp: !!feedback.follow_up_question,
+          followUpCategory: feedback.follow_up_category
+        });
         
         return NextResponse.json(feedback);
       } catch (parseError) {

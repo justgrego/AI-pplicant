@@ -521,6 +521,31 @@ export default function Home() {
     checkMicrophonePermission();
   }, []);
 
+  // Monitor conversation changes to ensure audio playback 
+  useEffect(() => {
+    console.log("Conversation changed, checking for pending audio messages");
+    
+    // If no message is currently playing audio and there's no current audio index
+    if (!isSpeaking && lastAudioMessageIdRef.current === null && conversation.length > 0) {
+      // Find the first message that needs audio playback
+      for (let i = 0; i < conversation.length; i++) {
+        if (conversation[i].needsAudioPlay) {
+          console.log(`Found message ${i} that needs audio playback:`, 
+            conversation[i].role, 
+            conversation[i].content.substring(0, 30) + "...");
+          
+          // Trigger audio playback with a small delay
+          setTimeout(() => {
+            console.log(`Setting lastAudioMessageIdRef to ${i}`);
+            lastAudioMessageIdRef.current = i;
+          }, 500);
+          
+          break;
+        }
+      }
+    }
+  }, [conversation, isSpeaking]);
+
   return (
     <main className="flex min-h-screen flex-col bg-gradient-to-b from-gray-900 to-gray-950 text-white">
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 pb-8">

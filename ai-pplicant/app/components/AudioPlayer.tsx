@@ -34,8 +34,12 @@ export default function AudioPlayer({
 
   // Play audio once function
   async function playAudioOnce() {
+    // Add more logging for debugging
+    console.log(`AudioPlayer: playAudioOnce called for message ${messageId}. Already played: ${alreadyPlayed}, isLoading: ${isLoading}`);
+
     // Don't play if already played or already loading
     if (alreadyPlayed || isLoading) {
+      console.log(`AudioPlayer: Skipping playback for message ${messageId} - already played: ${alreadyPlayed}, isLoading: ${isLoading}`);
       return;
     }
 
@@ -70,10 +74,16 @@ export default function AudioPlayer({
           setIsLoading(false);
           
           // Simulate playback for mock data
-          if (onPlaybackStart) onPlaybackStart();
+          if (onPlaybackStart) {
+            console.log(`AudioPlayer: Calling onPlaybackStart for mock audio, message ${messageId}`);
+            onPlaybackStart();
+          }
           const mockDuration = Math.min(Math.max(text.length * 50, 1000), 5000); // Cap at 5 seconds
           setTimeout(() => {
-            if (onPlaybackEnd) onPlaybackEnd();
+            if (onPlaybackEnd) {
+              console.log(`AudioPlayer: Calling onPlaybackEnd for mock audio, message ${messageId}`);
+              onPlaybackEnd();
+            }
           }, mockDuration);
           
           return;
@@ -93,14 +103,14 @@ export default function AudioPlayer({
         // Set event handlers directly on the element
         if (onPlaybackStart) {
           audioRef.current.onplay = () => {
-            console.log("AudioPlayer: Audio playback started");
+            console.log(`AudioPlayer: Audio playback started for message ${messageId}`);
             onPlaybackStart();
           };
         }
         
         if (onPlaybackEnd) {
           audioRef.current.onended = () => {
-            console.log("AudioPlayer: Audio playback ended");
+            console.log(`AudioPlayer: Audio playback ended for message ${messageId}`);
             // Clean up URL when done
             URL.revokeObjectURL(audioUrl);
             onPlaybackEnd();
@@ -117,7 +127,7 @@ export default function AudioPlayer({
         
         // Play audio
         try {
-          console.log("AudioPlayer: Attempting to play audio");
+          console.log(`AudioPlayer: Attempting to play audio for message ${messageId}`);
           await audioRef.current.play();
         } catch (playError) {
           console.error('AudioPlayer: Error playing audio:', playError);
@@ -137,11 +147,15 @@ export default function AudioPlayer({
 
   // Auto-play on mount if needed
   useEffect(() => {
+    // Add more logging for debugging
+    console.log(`AudioPlayer: Component mounted for message ${messageId}, autoPlay=${autoPlay}, alreadyPlayed=${alreadyPlayed}`);
+    
     // Only play if not already played and autoPlay is true
     if (autoPlay && !alreadyPlayed) {
-      console.log("AudioPlayer: Auto-playing audio for message", messageId);
+      console.log(`AudioPlayer: Will auto-play audio for message ${messageId} in 100ms`);
       // Use a small timeout to ensure the component is fully mounted
       setTimeout(() => {
+        console.log(`AudioPlayer: Triggering auto-play for message ${messageId}`);
         playAudioOnce();
       }, 100);
     }
