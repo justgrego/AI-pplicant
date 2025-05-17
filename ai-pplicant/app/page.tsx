@@ -45,6 +45,7 @@ export default function Home() {
   const [interviewMode, setInterviewMode] = useState<InterviewMode>('technical');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [micPermissionState, setMicPermissionState] = useState<'granted' | 'denied' | 'prompt' | 'unknown'>('unknown');
+  const [audioPlayed, setAudioPlayed] = useState<Record<number, boolean>>({});
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const lastAudioMessageIdRef = useRef<number | null>(null);
 
@@ -235,6 +236,12 @@ export default function Home() {
 
   // Request microphone permission before starting recording
   const handleVoiceButtonClick = async () => {
+    // Don't activate recording if AI is currently speaking
+    if (isSpeaking) {
+      setError("Please wait for the interviewer to finish speaking.");
+      return;
+    }
+    
     if (listeningForVoice) {
       // Stop listening
       setListeningForVoice(false);
@@ -281,24 +288,20 @@ export default function Home() {
   useEffect(() => {
     // Find the last message that needs audio playback
     const messageToPlay = conversation.findIndex((msg, idx) => 
-      msg.needsAudioPlay && (lastAudioMessageIdRef.current === null || idx > lastAudioMessageIdRef.current)
+      msg.needsAudioPlay && !audioPlayed[idx] && 
+      (lastAudioMessageIdRef.current === null || idx > lastAudioMessageIdRef.current)
     );
     
     if (messageToPlay !== -1) {
       console.log("Playing audio for message:", messageToPlay);
       lastAudioMessageIdRef.current = messageToPlay;
-      
-      // This is the fix - we're setting the reference but not actually playing audio
-      // Let's force an update to the conversation to make sure the AudioPlayer component re-renders
-      const updatedConversation = [...conversation];
-      setConversation(updatedConversation);
     }
     
     // Scroll to bottom
     if (conversationEndRef.current) {
       conversationEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [conversation]);
+  }, [conversation, audioPlayed]);
 
   const handleRestart = () => {
     setStarted(false);
@@ -313,10 +316,22 @@ export default function Home() {
   // Handle audio playback started and ended
   const handleAudioPlaybackStarted = () => {
     setIsSpeaking(true);
+    // Automatically stop any ongoing recording when audio starts playing
+    if (listeningForVoice) {
+      setListeningForVoice(false);
+    }
   };
 
   const handleAudioPlaybackEnded = () => {
     setIsSpeaking(false);
+    
+    // Mark the current audio message as played
+    if (lastAudioMessageIdRef.current !== null) {
+      setAudioPlayed(prev => ({
+        ...prev,
+        [lastAudioMessageIdRef.current!]: true
+      }));
+    }
   };
 
   // Use effect to check microphone permission on component mount
@@ -584,11 +599,13 @@ export default function Home() {
                   className={`w-full flex items-center justify-center py-3 px-4 rounded-lg transition duration-150 ease-in-out shadow-lg ${
                     listeningForVoice 
                       ? 'bg-red-600 hover:bg-red-700 animate-pulse' 
-                      : micPermissionState === 'denied'
-                        ? 'bg-gray-600'
-                        : 'bg-blue-600 hover:bg-blue-700'
+                      : isSpeaking
+                        ? 'bg-gray-600 cursor-not-allowed'
+                        : micPermissionState === 'denied'
+                          ? 'bg-gray-600'
+                          : 'bg-blue-600 hover:bg-blue-700'
                   }`}
-                  disabled={micPermissionState === 'denied'}
+                  disabled={micPermissionState === 'denied' || isSpeaking}
                 >
                   {listeningForVoice ? (
                     <>
@@ -596,6 +613,17 @@ export default function Home() {
                         <rect x="6" y="6" width="12" height="12" rx="2" ry="2" />
                       </svg>
                       Stop Recording
+                    </>
+                  ) : isSpeaking ? (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" x2="12" y1="19" y2="22" />
+                        <line x1="8" x2="16" y1="23" y2="23" />
+                        <line x1="1" y1="1" x2="23" y2="23" />
+                      </svg>
+                      Please wait...
                     </>
                   ) : micPermissionState === 'denied' ? (
                     <>
@@ -648,6 +676,7 @@ export default function Home() {
                                 hideControls={true}
                                 onPlaybackStart={handleAudioPlaybackStarted}
                                 onPlaybackEnd={handleAudioPlaybackEnded}
+                                key={`audio-${index}`}
                               />
                             )}
                           </div>
@@ -720,6 +749,7 @@ export default function Home() {
                                 hideControls={true}
                                 onPlaybackStart={handleAudioPlaybackStarted}
                                 onPlaybackEnd={handleAudioPlaybackEnded}
+                                key={`audio-${index}`}
                               />
                             )}
                           </div>

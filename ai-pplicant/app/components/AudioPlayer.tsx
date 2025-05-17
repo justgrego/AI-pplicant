@@ -22,12 +22,13 @@ export default function AudioPlayer({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mockMessage, setMockMessage] = useState<string | null>(null);
+  const [hasPlayed, setHasPlayed] = useState(false); // Track if this instance has already played audio
   const audioRef = useRef<HTMLAudioElement>(null);
 
   // Using useCallback to avoid recreation on each render
   const playAudio = useCallback(async () => {
-    if (!text) {
-      return;
+    if (!text || isLoading || hasPlayed) {
+      return; // Prevent repeated playback when already loading or has already played
     }
 
     try {
@@ -61,6 +62,7 @@ export default function AudioPlayer({
         if (jsonData.mockData) {
           setMockMessage(jsonData.message || 'Using mock audio in development mode');
           setIsLoading(false);
+          setHasPlayed(true); // Mark as played
           
           // In mock mode, simulate audio playback events with timeouts
           if (onPlaybackStart) {
@@ -98,6 +100,7 @@ export default function AudioPlayer({
         }
         
         audioRef.current.src = audioUrl;
+        setHasPlayed(true); // Mark as played
         
         // Play the audio immediately
         try {
@@ -115,22 +118,29 @@ export default function AudioPlayer({
       console.error('Error playing audio:', err);
       setError('Error playing audio');
       setIsLoading(false);
+      setHasPlayed(true); // Mark as played even on error
       if (onPlaybackEnd) onPlaybackEnd(); // Ensure we still call end when there's an error
     }
-  }, [text, voiceId, onPlaybackStart, onPlaybackEnd]);
+  }, [text, voiceId, onPlaybackStart, onPlaybackEnd, isLoading, hasPlayed]);
 
   // Play audio immediately on mount if autoPlay is true
   useEffect(() => {
-    if (autoPlay && text) {
+    if (autoPlay && text && !hasPlayed) {
       console.log("AudioPlayer: Auto-playing audio for:", text.substring(0, 30) + "...");
       playAudio();
     }
     
     // Clean up on unmount - make sure to end playback state
     return () => {
-      if (onPlaybackEnd) onPlaybackEnd();
+      if (audioRef.current) {
+        audioRef.current.pause();
+        if (audioRef.current.src) {
+          URL.revokeObjectURL(audioRef.current.src);
+        }
+      }
+      if (onPlaybackEnd && !hasPlayed) onPlaybackEnd();
     };
-  }, [autoPlay, text, playAudio, onPlaybackEnd]);
+  }, [autoPlay, text, playAudio, onPlaybackEnd, hasPlayed]);
 
   // Set up audio element event listeners
   useEffect(() => {
@@ -177,11 +187,27 @@ export default function AudioPlayer({
 
       <button
         onClick={playAudio}
-        disabled={isLoading || !text}
+        disabled={isLoading || !text || hasPlayed}
         className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white"
       >
         {isLoading ? (
           <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+        ) : hasPlayed ? (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="mr-2"
+          >
+            <path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
+            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
+          </svg>
         ) : (
           <svg 
             xmlns="http://www.w3.org/2000/svg" 
@@ -200,7 +226,7 @@ export default function AudioPlayer({
             <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
           </svg>
         )}
-        {isLoading ? 'Generating Audio...' : 'Listen'}
+        {isLoading ? 'Generating Audio...' : hasPlayed ? 'Played' : 'Listen'}
       </button>
       {error && <p className="text-red-500 mt-2">{error}</p>}
     </div>
