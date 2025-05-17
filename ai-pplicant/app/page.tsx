@@ -188,26 +188,10 @@ export default function Home() {
           needsAudioPlay: true
         }
       ]);
-
-      // Move to next question if available
-      if (currentQuestionIndex < questions.length - 1) {
-        const nextQuestionIndex = currentQuestionIndex + 1;
-        setCurrentQuestionIndex(nextQuestionIndex);
-        
-        // Add next question to conversation after a short delay
-        setTimeout(() => {
-          setConversation(prev => [
-            ...prev, 
-            { 
-              role: 'interviewer', 
-              content: questions[nextQuestionIndex].question,
-              question: questions[nextQuestionIndex],
-              summarizedContent: questions[nextQuestionIndex].question,
-              needsAudioPlay: true
-            }
-          ]);
-        }, 1000);
-      } else {
+      
+      // The next question will be added by handleAudioPlaybackEnded after feedback audio finishes
+      // We only need to handle the end of interview case here
+      if (currentQuestionIndex >= questions.length - 1) {
         // Interview completed
         setTimeout(() => {
           const concludingMessage = "That concludes our technical interview. Thank you for your time and thoughtful responses. Do you have any questions for me?";
@@ -272,13 +256,11 @@ export default function Home() {
   };
 
   const handleVoiceInput = (transcript: string) => {
-    console.log("Received transcript:", transcript);
+    console.log("Received voice transcript:", transcript);
     if (transcript.trim()) {
       setUserAnswer(transcript);
-      // Auto-submit answer after voice recording only if there's content
-      setTimeout(() => {
-        handleSubmitAnswer();
-      }, 800); // Slightly longer delay to ensure state updates
+      // Auto-submit answer immediately after voice recording
+      handleSubmitAnswer();
     }
     setListeningForVoice(false);
   };
@@ -315,7 +297,37 @@ export default function Home() {
   };
 
   const handleAudioPlaybackEnded = () => {
+    console.log("Audio playback ended for message", lastAudioMessageIdRef.current);
     setIsSpeaking(false);
+    
+    // Reset the audio message reference to ensure we don't replay the same message
+    const currentAudioIndex = lastAudioMessageIdRef.current;
+    lastAudioMessageIdRef.current = null;
+    
+    // If this was a feedback message, proceed to ask the next question
+    if (currentAudioIndex !== null && conversation[currentAudioIndex].role === 'feedback') {
+      console.log("Feedback message playback completed, proceeding to next question");
+      
+      // If there are more questions, add the next one after a short delay
+      if (currentQuestionIndex < questions.length - 1) {
+        const nextQuestionIndex = currentQuestionIndex + 1;
+        setCurrentQuestionIndex(nextQuestionIndex);
+        
+        // Add next question to conversation after a short delay
+        setTimeout(() => {
+          setConversation(prev => [
+            ...prev, 
+            { 
+              role: 'interviewer', 
+              content: questions[nextQuestionIndex].question,
+              question: questions[nextQuestionIndex],
+              summarizedContent: questions[nextQuestionIndex].question,
+              needsAudioPlay: true
+            }
+          ]);
+        }, 500);
+      }
+    }
   };
 
   // Use effect to check microphone permission on component mount

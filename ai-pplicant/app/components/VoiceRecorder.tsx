@@ -347,8 +347,8 @@ export default function VoiceRecorder({
             
             // Set transcript and call callback
             if (data.transcript) {
-              setTranscript(data.transcript);
               onTranscription(data.transcript);
+              setTranscript('');
             } else {
               setError("No speech detected. Please try again.");
             }
@@ -483,8 +483,10 @@ export default function VoiceRecorder({
         console.log("VoiceRecorder: Recognition ended, transcript:", transcript);
         
         // Submit the transcript if available
-          if (transcript) {
-            onTranscription(transcript);
+        if (transcript) {
+          onTranscription(transcript);
+          // Clear transcript after sending to prevent duplicate submissions
+          setTranscript('');
         }
         
         // If still listening but not recording, restart recognition
