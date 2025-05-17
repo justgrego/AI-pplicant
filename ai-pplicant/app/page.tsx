@@ -692,24 +692,13 @@ export default function Home() {
       const feedback = await feedbackResponse.json();
       console.log("Feedback response:", feedback);
 
-      // Prepare feedback content for display and audio
-      const displayFeedback = feedback.feedback;
-      const audioFeedback = createAudioFriendlyFeedback(
-        feedback, 
-        currentQuestion?.question,
-        currentAnswer
-      );
-      
-      console.log("Audio-friendly feedback created:", audioFeedback);
-
-      // Add feedback to conversation
+      // Add feedback to conversation directly from OpenAI
       const feedbackMessageId = `feedback-for-${candidateMessageId}-${Date.now()}`;
       
       addMessageToConversation({
         role: 'feedback',
-        content: displayFeedback,
+        content: feedback.feedback,
         feedback: feedback,
-        summarizedContent: audioFeedback,
         needsAudioPlay: true,
         messageId: feedbackMessageId,
         timestamp: Date.now()
@@ -875,25 +864,14 @@ export default function Home() {
           const feedback = await feedbackResponse.json();
           console.log("Voice input: Received feedback response");
 
-          // Create conversational feedback for display and audio
-          const displayFeedback = feedback.feedback;
-          const audioFeedback = createAudioFriendlyFeedback(
-            feedback,
-            currentQuestion?.question, 
-            answerText
-          );
-          
-          console.log("Voice input: Audio-friendly feedback created:", audioFeedback);
-
-          // Add feedback to conversation
+          // Add feedback to conversation directly from OpenAI
           const feedbackMessageId = `feedback-for-${voiceMessageId}-${Date.now()}`;
           const feedbackTimestamp = Date.now() + 100;
           
           addMessageToConversation({
             role: 'feedback',
-            content: displayFeedback,
+            content: feedback.feedback,
             feedback: feedback,
-            summarizedContent: audioFeedback,
             needsAudioPlay: true,
             messageId: feedbackMessageId,
             timestamp: feedbackTimestamp
@@ -901,15 +879,15 @@ export default function Home() {
           
           console.log("Voice input: Added feedback to conversation:", feedbackMessageId);
           
-          // Find and play the feedback audio
-          setTimeout(() => {
-            const feedbackIndex = conversation.findIndex(msg => msg.messageId === feedbackMessageId);
-            if (feedbackIndex !== -1) {
-              console.log(`Voice input: Playing feedback audio at index ${feedbackIndex}`);
-              playFeedbackAudio(feedbackIndex, audioFeedback);
-              
-              // Wait for feedback to finish before proceeding
-              const estimatedAudioDuration = Math.max(2000, audioFeedback.length * 80);
+                      // Find and play the feedback audio
+            setTimeout(() => {
+              const feedbackIndex = conversation.findIndex(msg => msg.messageId === feedbackMessageId);
+              if (feedbackIndex !== -1) {
+                console.log(`Voice input: Playing feedback audio at index ${feedbackIndex}`);
+                playFeedbackAudio(feedbackIndex, feedback.feedback);
+                
+                // Wait for feedback to finish before proceeding
+                const estimatedAudioDuration = Math.max(2000, feedback.feedback.length * 80);
               
               setTimeout(() => {
                 // Now add the follow-up question if available
@@ -1484,7 +1462,7 @@ export default function Home() {
                               <>
                                 <div className="text-xs text-indigo-300 mt-3 mb-1">Playing feedback audio...</div>
                                 <AudioPlayer 
-                                  text={message.summarizedContent || message.feedback.feedback}
+                                  text={message.feedback.feedback}
                                   messageId={index}
                                   autoPlay={true}
                                   hideControls={true}
