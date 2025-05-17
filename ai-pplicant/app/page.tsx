@@ -82,7 +82,7 @@ const primeSafariAudioContext = () => {
 };
 
 // Add the constant for the voice ID at the top level
-const VOICE_ID = 'xctasy8XvGp2cVO9HL9k';
+const VOICE_ID = 'CbRiJXXYVxEnJjySwh4y';
 
 export default function Home() {
   const [jobDescription, setJobDescription] = useState('');
