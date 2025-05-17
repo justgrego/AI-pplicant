@@ -135,75 +135,76 @@ export default function Home() {
     }
   }, [conversation, isSpeaking]);
 
-  // Create a more conversational, concise, and contextual feedback formatter
+  // Create natural, concise, company-specific feedback
   const createAudioFriendlyFeedback = (feedback: FeedbackResponse, questionText?: string, userAnswer?: string) => {
-    // Extract core content from feedback
-    const score = feedback.score;
+    // Extract feedback elements
     const strengths = feedback.strengths || [];
     const improvements = feedback.improvements || [];
     
-    // Get the original feedback
+    // Get the original feedback text for reference
     const originalFeedback = feedback.feedback;
     
-    // Create a more conversational and contextual message
+    // Create a direct, natural feedback message
     let message = '';
     
-    // Get question context if available (usually from the current question)
-    const currentQuestion = currentQuestionIndex < questions.length ? 
-      questions[currentQuestionIndex].question : 
-      questionText || "your answer";
+    // For context, reference the company culture
+    const companyReference = company ? `At ${company}, ` : '';
     
-    // Extract a brief version of the question (first 50 chars)
-    const briefQuestion = currentQuestion?.length > 50 ? 
-      currentQuestion.substring(0, 50) + '...' : 
-      currentQuestion;
-    
-    // Create conversational openers based on score
-    const conversationalOpeners = [
-      "Thanks for that answer about ",  // neutral
-      "I appreciate your response about ", // neutral
-      "That's a good point about ",  // positive
-      "I like how you addressed ",   // positive
-      "I see what you're saying about "  // neutral
-    ];
-    
-    // Select a conversation opener
-    const opener = conversationalOpeners[Math.floor(Math.random() * 3)];
-    
-    // Create more human-like feedback that references the question
-    if (score >= 4) {
-      // High score feedback
-      message = `${opener}${briefQuestion}. I thought ${strengths[0].toLowerCase()}. ${strengths.length > 1 ? strengths[1] + '. ' : ''} ${improvements.length > 0 ? 'To make it even better, ' + improvements[0].toLowerCase() + '.' : ''} That's a ${score}/5 from me.`;
-    } else if (score >= 3) {
-      // Medium score feedback
-      message = `${opener}${briefQuestion}. ${strengths[0]}. However, ${improvements[0].toLowerCase()}. ${improvements.length > 1 ? improvements[1] + '. ' : ''} Overall, that's a ${score}/5.`;
-    } else {
-      // Low score feedback
-      message = `Regarding your answer about ${briefQuestion}, ${strengths.length > 0 ? strengths[0] + '. ' : 'there are some areas to work on. '} ${improvements[0]}. ${improvements.length > 1 ? improvements[1] + '. ' : ''} Let's aim for better than ${score}/5 next time.`;
+    // Start with a strength (if available)
+    if (strengths.length > 0) {
+      message = `Good point about ${strengths[0].toLowerCase().replace(/^you /i, '')}. `;
     }
     
-    // Add STAR method specific advice for behavioral questions if needed
-    if (interviewMode === 'behavioral' && originalFeedback.toLowerCase().includes('star')) {
-      message += ' Remember to use the STAR method: Situation, Task, Action, and Result.';
-    }
-    
-    // Add technical specificity for technical questions
-    if (interviewMode === 'technical' && userAnswer && userAnswer.length > 0) {
-      // If they mentioned code or algorithms, acknowledge it
-      if (userAnswer.toLowerCase().includes('code') || 
-          userAnswer.toLowerCase().includes('algorithm') ||
-          userAnswer.toLowerCase().includes('complexity')) {
-        message += ' Your technical details were important.';
+    // Add the primary improvement advice - this is the most important part
+    if (improvements.length > 0) {
+      // Make improvement advice more direct and actionable
+      const improvement = improvements[0]
+        .replace(/^you should /i, '')
+        .replace(/^consider /i, '')
+        .replace(/^try to /i, '');
+      
+      // Add company context to the improvement when possible
+      message += `${companyReference}I'd recommend you ${improvement}. `;
+      
+      // Add a second improvement if available, but keep it brief
+      if (improvements.length > 1) {
+        const secondImprovement = improvements[1]
+          .replace(/^you should /i, '')
+          .replace(/^consider /i, '')
+          .replace(/^try to /i, '');
+        
+        message += `Also, ${secondImprovement}. `;
       }
     }
     
-    // Add pause markers for better TTS pacing (commas and periods help speech systems pace better)
+    // Add specific type-based advice
+    if (interviewMode === 'behavioral') {
+      // For behavioral questions, add STAR method reminder if needed
+      if (originalFeedback.toLowerCase().includes('star') && 
+          !message.toLowerCase().includes('star method')) {
+        message += 'Structure your answer with the STAR method: situation, task, action, results. ';
+      }
+    } else if (interviewMode === 'technical') {
+      // For technical questions, add specific technical advice
+      if (!message.toLowerCase().includes('complexity') && 
+          !message.toLowerCase().includes('algorithm') &&
+          originalFeedback.toLowerCase().includes('complexity')) {
+        message += 'Remember to discuss time and space complexity. ';
+      }
+    }
+    
+    // Keep the feedback focused on improvement rather than scoring
+    if (feedback.score && feedback.score < 3 && !message.includes('practice')) {
+      message += 'This will need more practice. ';
+    }
+    
+    // Format the message for better speech synthesis
+    message = message.trim();
     message = message.replace(/\.\s+/g, '. '); // Ensure proper spacing after periods
     message = message.replace(/\,\s+/g, ', '); // Ensure proper spacing after commas
     
-    // Don't cut off feedback too abruptly
+    // Limit length while preserving complete sentences
     if (message.length > 1000) {
-      // Find the last sentence end within the limit
       const lastPeriod = message.lastIndexOf('.', 1000);
       if (lastPeriod > 900) {
         message = message.substring(0, lastPeriod + 1);
