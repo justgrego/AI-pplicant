@@ -7,10 +7,19 @@ export const config = {
 
 // Create a mock audio response for development or when API key is missing
 async function getMockAudioResponse() {
-  return NextResponse.json({
-    message: "Mock audio response - API key not configured or in development mode",
-    mockData: true
-  });
+  console.log('Voice API: Returning mock audio response');
+  return NextResponse.json(
+    {
+      mockData: true,
+      message: 'Using mock audio in development mode. Real audio would play here in production.',
+    },
+    {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -18,6 +27,7 @@ export async function POST(request: NextRequest) {
     const { text, voiceId } = await request.json();
 
     if (!text) {
+      console.error('Voice API: Text is required');
       return NextResponse.json(
         { error: 'Text is required' },
         { status: 400 }
@@ -26,12 +36,13 @@ export async function POST(request: NextRequest) {
 
     // Check if API key is missing (development mode without .env.local)
     if (!process.env.ELEVENLABS_API_KEY || process.env.NODE_ENV === 'development') {
-      console.log('Using mock voice response (API key missing or in development)');
+      console.log('Voice API: Using mock voice response (API key missing or in development)');
       return getMockAudioResponse();
     }
 
     // Use default voice if not provided
     const selectedVoiceId = voiceId || 'CYw3kZ02Hs0563khs1Fj'; // Default voice: Jessica
+    console.log(`Voice API: Using voice ID ${selectedVoiceId} for text: "${text.substring(0, 50)}..."`);
 
     try {
       // Direct fetch to ElevenLabs API
@@ -56,26 +67,38 @@ export async function POST(request: NextRequest) {
       );
 
       if (!response.ok) {
-        console.error(`ElevenLabs API error: ${response.status}`);
+        console.error(`Voice API: ElevenLabs API error: ${response.status}`);
+        // Try to get more detailed error info from the response
+        try {
+          const errorData = await response.json();
+          console.error('Voice API: Error details:', errorData);
+        } catch {
+          // Ignore if we can't parse the error response
+        }
         return getMockAudioResponse();
       }
 
       // Get the audio data
       const audioArrayBuffer = await response.arrayBuffer();
+      console.log(`Voice API: Successfully generated audio (${audioArrayBuffer.byteLength} bytes)`);
       
       // Return the audio data as a response
       return new NextResponse(audioArrayBuffer, {
         headers: {
           'Content-Type': 'audio/mpeg',
           'Content-Length': audioArrayBuffer.byteLength.toString(),
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
         },
       });
     } catch (apiError) {
-      console.error('ElevenLabs API error:', apiError);
+      console.error('Voice API: ElevenLabs API error:', apiError);
       return getMockAudioResponse();
     }
   } catch (error) {
-    console.error('Voice conversion error:', error);
+    console.error('Voice API: Voice conversion error:', error);
     return getMockAudioResponse();
   }
 } 

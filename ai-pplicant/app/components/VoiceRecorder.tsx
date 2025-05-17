@@ -96,6 +96,33 @@ export default function VoiceRecorder({
     return 'audio/webm';
   };
   
+  // Check for microphone availability
+  const checkMicrophoneAvailability = async () => {
+    try {
+      // Check if mediaDevices API is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.error("VoiceRecorder: MediaDevices API not supported in this browser");
+        return false;
+      }
+      
+      // List available input devices to check if microphone exists
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const hasAudioInput = devices.some(device => device.kind === 'audioinput');
+      
+      if (!hasAudioInput) {
+        console.error("VoiceRecorder: No audio input devices found");
+        return false;
+      }
+      
+      // Try to get user media with audio
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      return true;
+    } catch (error) {
+      console.error("VoiceRecorder: Microphone not available:", error);
+      return false;
+    }
+  };
+  
   // Check for browser compatibility immediately
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -103,6 +130,13 @@ export default function VoiceRecorder({
       console.log("VoiceRecorder: SpeechRecognition not supported, using fallback");
       setUseFallbackRecorder(true);
     }
+    
+    // Check microphone availability on mount
+    checkMicrophoneAvailability().then(available => {
+      if (!available) {
+        setError("Microphone not detected. Please connect a microphone and refresh the page.");
+      }
+    });
     
     // Clean up on unmount
     return () => {
@@ -233,6 +267,12 @@ export default function VoiceRecorder({
       audioChunksRef.current = [];
       setError(null);
       
+      // First check if microphone is available
+      const micAvailable = await checkMicrophoneAvailability();
+      if (!micAvailable) {
+        throw new Error("Microphone not detected or permission denied");
+      }
+      
       // Special handling for macOS in Chrome
       const constraints = { 
         audio: {
@@ -245,8 +285,16 @@ export default function VoiceRecorder({
         } 
       };
       
-      // Request microphone access with optimized constraints
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      // Try multiple constraint configurations if needed
+      let stream;
+      try {
+        // First try with optimal constraints
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch {
+        console.log("VoiceRecorder: Failed with optimal constraints, trying basic constraints");
+        // Fall back to basic constraints
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
       
       // Setup audio visualization
       setupAudioVisualization(stream);
@@ -332,7 +380,13 @@ export default function VoiceRecorder({
       
     } catch (error) {
       console.error("VoiceRecorder: Failed to start media recording:", error);
-      setError("Failed to access microphone or start recording");
+      if (error instanceof DOMException && error.name === "NotFoundError") {
+        setError("No microphone detected. Please check your microphone connection and try again.");
+      } else if (error instanceof DOMException && error.name === "NotAllowedError") {
+        setError("Microphone access denied. Please allow microphone access and try again.");
+      } else {
+        setError("Failed to access microphone or start recording. Please check your audio settings.");
+      }
       setRecording(false);
     }
   }, [onTranscription, setupAudioVisualization, cleanupAudio, recording]);
@@ -359,7 +413,7 @@ export default function VoiceRecorder({
         return;
       }
       
-      // Create new recognition instance
+      // Create recognition instance
       const recognition = new SpeechRecognition();
       
       // Configure recognition - optimized for Chrome on MacBook
@@ -383,15 +437,33 @@ export default function VoiceRecorder({
         } 
       };
       
-      navigator.mediaDevices.getUserMedia(constraints)
-        .then(setupAudioVisualization)
-        .catch(err => {
-          console.error("Couldn't access microphone for visualization:", err);
-          // Try again with basic constraints if fancy ones fail
-          navigator.mediaDevices.getUserMedia({ audio: true })
-            .then(setupAudioVisualization)
-            .catch(err => console.error("Failed with basic constraints too:", err));
-        });
+      // First check if microphone is available before starting
+      checkMicrophoneAvailability().then(available => {
+        if (!available) {
+          throw new Error("Microphone not available");
+        }
+        
+        // Try with multiple constraint configurations if needed
+        navigator.mediaDevices.getUserMedia(constraints)
+          .then(setupAudioVisualization)
+          .catch(err => {
+            console.error("VoiceRecorder: Couldn't access microphone with optimal settings:", err);
+            // Try again with basic constraints if fancy ones fail
+            navigator.mediaDevices.getUserMedia({ audio: true })
+              .then(setupAudioVisualization)
+              .catch(err => {
+                console.error("VoiceRecorder: Failed with basic constraints too:", err);
+                if (err.name === "NotFoundError") {
+                  setError("No microphone detected. Please check your microphone connection.");
+                } else if (err.name === "NotAllowedError") {
+                  setError("Microphone access denied. Please allow microphone access.");
+                }
+              });
+          });
+      }).catch(err => {
+        console.error("VoiceRecorder: Microphone check failed:", err);
+        setError("Microphone not available. Please check your microphone connection.");
+      });
       
       // Handle results
       recognition.onresult = (event: SpeechRecognitionEvent) => {
@@ -453,7 +525,13 @@ export default function VoiceRecorder({
       
     } catch (error) {
       console.error("VoiceRecorder: Failed to start recognition", error);
-      setError("Failed to start voice recording, trying fallback method");
+      if (error instanceof DOMException && error.name === "NotFoundError") {
+        setError("No microphone detected. Please check your microphone connection and try again.");
+      } else if (error instanceof DOMException && error.name === "NotAllowedError") {
+        setError("Microphone access denied. Please allow microphone access and try again.");
+      } else {
+        setError("Failed to start voice recording, trying fallback method");
+      }
       setUseFallbackRecorder(true);
       startMediaRecording();
     }
@@ -464,20 +542,37 @@ export default function VoiceRecorder({
     console.log("VoiceRecorder: isListening changed to", isListening);
     
     if (isListening && !recording) {
-      if (useFallbackRecorder) {
-        startMediaRecording();
+      // Check if the API is supported
+      if ((!window.SpeechRecognition && !window.webkitSpeechRecognition) || useFallbackRecorder) {
+        console.log("VoiceRecorder: Using fallback recorder");
+        startMediaRecording().catch(err => {
+          console.error("VoiceRecorder: Failed to start media recording:", err);
+          setError("Failed to start voice recording. Please check your microphone.");
+        });
       } else {
-      startRecognition();
+        startRecognition();
       }
     } else if (!isListening && recording) {
       stopRecognition();
     }
-  }, [isListening, useFallbackRecorder, startRecognition, startMediaRecording, stopRecognition, recording]); 
+  }, [isListening, recording, startRecognition, stopRecognition, useFallbackRecorder, startMediaRecording]); 
   
   // Enhanced UI with audio visualization and test playback
   return (
     <div className={recording || error || testAudioUrl ? "block" : "hidden"}>
-      {error && <p className="text-red-500 mb-2">{error}</p>}
+      {error && (
+        <div className="mb-4 p-3 bg-red-900/30 border border-red-800 rounded-md">
+          <p className="text-red-400 font-medium">{error}</p>
+          {error.includes("microphone") && (
+            <ul className="list-disc list-inside text-sm text-red-300 mt-2">
+              <li>Make sure a microphone is connected to your device</li>
+              <li>Check browser permissions and allow microphone access</li>
+              <li>Try using a different browser (Chrome recommended)</li>
+              <li>On macOS, check System Settings &gt; Privacy &amp; Security</li>
+            </ul>
+          )}
+        </div>
+      )}
       <div className="flex flex-col items-center justify-center">
         <div className="flex items-center justify-center mb-2">
           <div className={`w-4 h-4 rounded-full ${recording ? 'bg-red-500 animate-pulse' : 'bg-gray-400'}`}></div>

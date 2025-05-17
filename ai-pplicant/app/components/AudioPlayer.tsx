@@ -46,6 +46,8 @@ export default function AudioPlayer({
       // Mark as played immediately to prevent double execution
       playedMessages.add(messageId);
       
+      console.log("AudioPlayer: Fetching audio for text:", text.substring(0, 50) + "...");
+      
       // Get the audio from the API
       const response = await fetch('/api/voice', {
         method: 'POST',
@@ -54,13 +56,15 @@ export default function AudioPlayer({
       });
 
       if (!response.ok) {
-        throw new Error('Failed to generate audio');
+        console.error(`AudioPlayer: Failed to generate audio - status ${response.status}`);
+        throw new Error(`Failed to generate audio (status ${response.status})`);
       }
 
       // Handle mock responses
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
         const jsonData = await response.json();
+        console.log("AudioPlayer: Received mock data response:", jsonData);
         if (jsonData.mockData) {
           setMockMessage(jsonData.message || 'Using mock audio in development mode');
           setIsLoading(false);
@@ -76,32 +80,47 @@ export default function AudioPlayer({
         }
       }
 
+      console.log("AudioPlayer: Got audio response, creating blob");
       // Play real audio
       const audioBlob = await response.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
       
       if (audioRef.current) {
+        console.log("AudioPlayer: Setting up audio element with URL");
         // Set up audio element
         audioRef.current.src = audioUrl;
         
         // Set event handlers directly on the element
         if (onPlaybackStart) {
-          audioRef.current.onplay = onPlaybackStart;
+          audioRef.current.onplay = () => {
+            console.log("AudioPlayer: Audio playback started");
+            onPlaybackStart();
+          };
         }
         
         if (onPlaybackEnd) {
           audioRef.current.onended = () => {
+            console.log("AudioPlayer: Audio playback ended");
             // Clean up URL when done
             URL.revokeObjectURL(audioUrl);
             onPlaybackEnd();
           };
         }
         
+        // Add error event handler
+        audioRef.current.onerror = (e) => {
+          const errorEvent = e as ErrorEvent;
+          console.error('AudioPlayer: Error playing audio:', errorEvent);
+          setError(`Audio playback error: ${errorEvent.message || 'Unknown error'}`);
+          if (onPlaybackEnd) onPlaybackEnd();
+        };
+        
         // Play audio
         try {
+          console.log("AudioPlayer: Attempting to play audio");
           await audioRef.current.play();
         } catch (playError) {
-          console.error('Error playing audio:', playError);
+          console.error('AudioPlayer: Error playing audio:', playError);
           setError('Failed to play audio. Please try again.');
           if (onPlaybackEnd) onPlaybackEnd();
         }
@@ -109,7 +128,7 @@ export default function AudioPlayer({
       
       setIsLoading(false);
     } catch (err) {
-      console.error('Error fetching audio:', err);
+      console.error('AudioPlayer: Error fetching audio:', err);
       setError('Error fetching audio');
       setIsLoading(false);
       if (onPlaybackEnd) onPlaybackEnd();
@@ -120,6 +139,7 @@ export default function AudioPlayer({
   useEffect(() => {
     // Only play if not already played and autoPlay is true
     if (autoPlay && !alreadyPlayed) {
+      console.log("AudioPlayer: Auto-playing audio for message", messageId);
       playAudioOnce();
     }
     
@@ -145,7 +165,11 @@ export default function AudioPlayer({
   if (hideControls) {
     return (
       <div className="hidden">
-        <audio ref={audioRef} />
+        <audio 
+          ref={audioRef} 
+          preload="auto"
+          crossOrigin="anonymous"
+        />
         {error && <p className="text-red-500 mt-2">{error}</p>}
       </div>
     );
@@ -153,7 +177,13 @@ export default function AudioPlayer({
 
   return (
     <div className="mt-2">
-      <audio ref={audioRef} controls className={mockMessage ? "hidden" : "w-full mt-2"} />
+      <audio 
+        ref={audioRef} 
+        controls 
+        preload="auto"
+        crossOrigin="anonymous"
+        className={mockMessage ? "hidden" : "w-full mt-2"} 
+      />
       
       {mockMessage && (
         <div className="p-3 bg-yellow-100/20 text-yellow-200 rounded-md mt-2 mb-2">
