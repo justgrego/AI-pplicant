@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from 'react';
 import AudioPlayer from './components/AudioPlayer';
 import VoiceRecorder from './components/VoiceRecorder';
-import Image from 'next/image';
 
 interface Question {
   question: string;

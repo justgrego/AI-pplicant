@@ -28,6 +28,7 @@ declare global {
   interface Window {
     SpeechRecognition: new () => SpeechRecognitionInstance;
     webkitSpeechRecognition: new () => SpeechRecognitionInstance;
+    webkitAudioContext: typeof AudioContext;
   }
 }
 
@@ -96,7 +97,7 @@ export default function VoiceRecorder({
       streamRef.current = stream;
       
       // Create AudioContext
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       audioContextRef.current = audioContext;
       
       // Create analyzer node
