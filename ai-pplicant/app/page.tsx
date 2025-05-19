@@ -88,11 +88,9 @@ export default function Home() {
   const [jobDescription, setJobDescription] = useState('');
   const [company, setCompany] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
   const [started, setStarted] = useState(false);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [userAnswer, setUserAnswer] = useState('');
   const [conversation, setConversation] = useState<ConversationMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [listeningForVoice, setListeningForVoice] = useState(false);
@@ -614,122 +612,6 @@ export default function Home() {
     }, 1000);
   };
 
-  // Update the handleSubmitAnswer function for more reliable question flow
-  const handleSubmitAnswer = async () => {
-    // Prime Safari audio
-    primeSafariAudioContext();
-    
-    if (!userAnswer.trim()) {
-      setError('Please provide an answer before submitting');
-      return;
-    }
-    
-    // Set processing flag to block duplicate messages
-    setProcessingFeedback(true);
-
-    // Save the current answer
-    const currentAnswer = userAnswer;
-    
-    // Clear the answer field immediately
-    setUserAnswer('');
-    setIsSubmittingAnswer(true);
-    setError(null);
-
-    // Add user's answer to conversation
-    const candidateMessageId = `candidate-${Date.now()}`;
-    addMessageToConversation({
-      role: 'candidate',
-      content: currentAnswer,
-      messageId: candidateMessageId,
-      timestamp: Date.now()
-    });
-
-    try {
-      // Get the current question if available
-      const currentQuestion = currentQuestionIndex < questions.length 
-        ? questions[currentQuestionIndex] 
-        : null;
-      
-      console.log(`Submitting answer for question ${currentQuestionIndex}, company: ${company}`);
-      
-      // Prepare conversation history for the API
-      const conversationHistory = conversation
-        .filter(msg => msg.role !== 'feedback') // Remove feedback messages from history
-        .map(msg => ({
-          role: msg.role === 'candidate' ? 'user' : 'assistant',
-          content: msg.content
-        }))
-        .slice(-6);
-      
-      // Add current answer if not already included
-      if (!conversationHistory.some(msg => msg.content === currentAnswer)) {
-        conversationHistory.push({
-          role: 'user',
-          content: currentAnswer
-        });
-      }
-      
-      // Get feedback from the API
-      const feedbackResponse = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userAnswer: currentAnswer,
-          question: currentQuestion?.question || "Tell me about yourself",
-          category: currentQuestion?.category || "General",
-          difficulty: currentQuestion?.difficulty || "Medium",
-          company,
-          interviewMode,
-          conversationHistory,
-          generateFollowUp: true
-        }),
-      });
-
-      if (!feedbackResponse.ok) {
-        throw new Error('Failed to get feedback on answer');
-      }
-
-      const feedback = await feedbackResponse.json();
-      console.log("Feedback response:", feedback);
-
-      // Add feedback to conversation directly from OpenAI
-      const feedbackMessageId = `feedback-for-${candidateMessageId}-${Date.now()}`;
-      
-      addMessageToConversation({
-        role: 'feedback',
-        content: feedback.feedback,
-        feedback: feedback,
-        needsAudioPlay: true,
-        messageId: feedbackMessageId,
-        timestamp: Date.now()
-      });
-      
-      console.log("Added feedback message:", feedbackMessageId);
-      
-      // Find and play the feedback audio
-      setTimeout(() => {
-        const feedbackIndex = conversation.findIndex(msg => msg.messageId === feedbackMessageId);
-        if (feedbackIndex !== -1) {
-          console.log("Playing feedback audio");
-          lastAudioMessageIdRef.current = feedbackIndex;
-        } else {
-          console.warn("Could not find feedback message to play");
-          // If we can't find the feedback message, immediately add the next question
-          addNextQuestion({ feedback: feedback } as ConversationMessage);
-        }
-        
-        // Clear the submission state
-        setIsSubmittingAnswer(false);
-      }, 500);
-      
-    } catch (error) {
-      console.error('Error submitting answer:', error);
-      setError('Failed to submit answer. Please try again.');
-      setProcessingFeedback(false);
-      setIsSubmittingAnswer(false);
-    }
-  };
-
   // Request microphone permission before starting recording
   const handleVoiceButtonClick = async () => {
     // If already recording, stop it and reset error state
@@ -795,9 +677,6 @@ export default function Home() {
       // Set processing flag to block duplicate messages
       setProcessingFeedback(true);
       
-      // Set answer in state
-      setUserAnswer(transcript);
-      
       // Add user's voice answer to conversation
       const voiceMessageId = `candidate-voice-${Date.now()}`;
       addMessageToConversation({
@@ -815,7 +694,6 @@ export default function Home() {
         }
         
         console.log("Submitting voice answer to API:", answerText);
-        setIsSubmittingAnswer(true);
         setError(null);
         
         try {
@@ -943,14 +821,10 @@ export default function Home() {
             }
           }, 500);
 
-          // Clear the answer
-          setUserAnswer('');
         } catch (error) {
           console.error('Error submitting voice answer:', error);
           setError('Failed to submit answer. Please try again.');
           setProcessingFeedback(false);
-        } finally {
-          setIsSubmittingAnswer(false);
         }
       };
       
@@ -965,7 +839,6 @@ export default function Home() {
     setStarted(false);
     setQuestions([]);
     setCurrentQuestionIndex(0);
-    setUserAnswer('');
     setConversation([]);
     setError(null);
     lastAudioMessageIdRef.current = null;
@@ -1502,31 +1375,35 @@ export default function Home() {
               </div>
               
               {/* Text input fallback */}
-              {!listeningForVoice && currentQuestionIndex < questions.length && (
+              {!listeningForVoice && currentQuestionIndex < questions.length && processingFeedback === false && (
                 <div className="bg-gray-800/30 p-4 rounded-xl shadow-lg border border-gray-700/50 backdrop-blur-sm">
-                  <h3 className="text-lg font-medium mb-2 text-white">Your Answer</h3>
-                  <p className="text-sm text-gray-300 mb-4">
-                    {isSpeaking ? 
-                      "Please wait for the interviewer to finish speaking..." : 
-                      "Type your answer below or click 'Start Speaking' to use voice input."
-                    }
-                  </p>
-                  <textarea
-                    value={userAnswer}
-                    onChange={(e) => setUserAnswer(e.target.value)}
-                    className="w-full p-3 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-900/70 text-white"
-                    rows={5}
-                    placeholder="Type your answer here..."
-                    disabled={isSpeaking}
-                  />
-                  
-                  <div className="mt-4 flex justify-end">
-                    <button
-                      onClick={handleSubmitAnswer}
-                      disabled={isSubmittingAnswer || !userAnswer.trim() || isSpeaking}
-                      className="py-2 px-6 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg disabled:opacity-50 shadow-lg"
+                  <div className="text-center py-3">
+                    <h3 className="text-lg font-medium mb-2 text-white">Ready for your answer</h3>
+                    <p className="text-sm text-gray-300 mb-4">
+                      {isSpeaking ? 
+                        "Please wait for the interviewer to finish speaking..." : 
+                        "Click 'Start Speaking' on the left to use voice input."
+                      }
+                    </p>
+                    <button 
+                      onClick={handleVoiceButtonClick}
+                      className={`inline-flex items-center justify-center py-3 px-6 rounded-lg transition duration-150 ease-in-out shadow-lg ${
+                        listeningForVoice 
+                          ? 'bg-red-600 hover:bg-red-700 animate-pulse' 
+                          : isSpeaking
+                            ? 'bg-gray-600 cursor-not-allowed'
+                            : micPermissionState === 'denied'
+                              ? 'bg-gray-600'
+                            : 'bg-blue-600 hover:bg-blue-700'
+                      }`}
+                      disabled={micPermissionState === 'denied' || isSpeaking}
                     >
-                      {isSubmittingAnswer ? 'Submitting...' : 'Submit Answer'}
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" x2="12" y1="19" y2="22" />
+                      </svg>
+                      Start Speaking
                     </button>
                   </div>
                 </div>
